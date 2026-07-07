@@ -477,17 +477,27 @@
         XLSX.writeFile(wb, fileName);
     }
     // ────────────────────────────────────────────────────────────────────────
-    function centerAndLoad(permalink, vid, timeoutMs = 3000) {
+    function centerAndLoad(permalink, vid, timeoutMs = 4000) {
         return new Promise(resolve => {
             const coords = parseLatLon(permalink);
             if (!coords) return resolve(null);
             const { lat, lon } = coords;
 
+            // Zoom de préchargement volontairement large (16–17) : le lat/lon d'un
+            // permalink cadre souvent la CARTE, pas le POI (ex. Fresnes 1 : venue à
+            // 361 m du point du permalink). À zoom 19, un POI décalé tombe hors des
+            // tuiles chargées et n'est jamais trouvé → « non chargé ». On suit le
+            // zoomLevel du permalink en le plafonnant à 17. La vue de l'utilisateur
+            // est restaurée après le préchargement (savedCenter/savedZoom).
+            let z = parseInt(new URL(permalink).searchParams.get('zoomLevel'), 10);
+            if (isNaN(z)) z = 17;
+            z = Math.max(16, Math.min(z, 17));
+
             const lonlat = new OpenLayers.LonLat(lon, lat).transform(
                 new OpenLayers.Projection('EPSG:4326'),
                 W.map.getProjectionObject()
             );
-            W.map.setCenter(lonlat, 19);
+            W.map.setCenter(lonlat, z);
 
             const t0 = Date.now();
             const poll = setInterval(() => {
