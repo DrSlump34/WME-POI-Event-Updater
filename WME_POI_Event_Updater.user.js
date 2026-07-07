@@ -18,6 +18,7 @@
 // @grant        none
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+
 // @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
+// @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @downloadURL  https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.user.js
 // @updateURL    https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.meta.js
 // ==/UserScript==
@@ -42,9 +43,11 @@
         } catch { return 'en'; }
     }
 
-    // t() — les strings sont définies à l'intérieur, jamais évaluées au chargement
+    // Dictionnaire i18n construit une seule fois (mémoïsé) au 1er appel, puis réutilisé
+    // — évite de reconstruire tout l'objet à chaque appel de t().
+    let _strings = null;
     function t(key, ...args) {
-        const strings = {
+        if (!_strings) _strings = {
             fr: {
                 tabTitle:'POI Events', tabTooltip:'Mise à jour POI via Excel',
                 panelTitle:'POI Event Updater', chooseFile:'📂 Choisir un fichier',
@@ -91,6 +94,8 @@
                 badgeHardTitle:'Ces POI sont verrouillés niveau 7 — édition impossible',
                 layerOffMsg:'⚠️ Le calque "Lieux" est désactivé dans WME.\n\nActivez-le (menu Calques > Lieux) avant de lancer le script.',
                 cancelBtn:'Annuler', preloadCancelled:'Préchargement annulé.', clearHistoryTitle:"Effacer l'historique",
+                xlsxMissing:'⚠️ Librairie Excel (XLSX) non chargée. Vérifiez votre connexion ou autorisez cdnjs.cloudflare.com / jsdelivr.net, puis rechargez la page (F5).',
+                locateTitle:'Recentrer la carte sur ce POI',
             },
             en: {
                 tabTitle:'POI Events', tabTooltip:'Bulk-update POIs via Excel',
@@ -138,9 +143,11 @@
                 badgeHardTitle:'These POIs are level-7 locked — editing not possible',
                 layerOffMsg:'⚠️ The "Places" layer is disabled in WME.\n\nPlease enable it (Layers menu > Places) before running the script.',
                 cancelBtn:'Cancel', preloadCancelled:'Preloading cancelled.', clearHistoryTitle:'Clear history',
+                xlsxMissing:'⚠️ Excel library (XLSX) not loaded. Check your connection or allow cdnjs.cloudflare.com / jsdelivr.net, then reload the page (F5).',
+                locateTitle:'Center the map on this POI',
             }
         };
-        const val = strings[_peuLang]?.[key] ?? strings.en[key] ?? key;
+        const val = _strings[_peuLang]?.[key] ?? _strings.en[key] ?? key;
         return typeof val === 'function' ? val(...args) : val;
     }
 
@@ -589,6 +596,16 @@
         status.style.cssText = 'margin:6px 0;font-size:11px;color:#888;';
         container.appendChild(status);
 
+        // Repli : si la librairie XLSX n'a pas pu se charger (CDN bloqué / hors ligne),
+        // on informe clairement au lieu de laisser le script planter en silence.
+        if (typeof XLSX === 'undefined') {
+            status.textContent = t('xlsxMissing');
+            status.style.color = '#c0392b';
+            btnChoose.disabled = true;
+            btnChoose.style.opacity = '0.5';
+            btnChoose.style.cursor = 'not-allowed';
+        }
+
         const select = document.createElement('select');
         select.style.cssText = 'display:none;width:100%;margin:6px 0;font-size:12px;border:1px solid #c5d3e8;border-radius:5px;padding:4px 6px;';
         container.appendChild(select);
@@ -895,6 +912,8 @@
         const btnV = document.createElement('button'); btnV.className = 'peu-btn-icon apply'; btnV.title = t('btnApply'); btnV.textContent = '✔'; btnV.onclick = () => applyChanges();
         const btnX = document.createElement('button'); btnX.className = 'peu-btn-icon cancel'; btnX.title = t('btnClose'); btnX.textContent = '✕'; btnX.onclick = () => overlay.remove();
         headerBtns.appendChild(btnMin); headerBtns.appendChild(btnDiff); headerBtns.appendChild(btnV); headerBtns.appendChild(btnX);
+        // a11y : pour ces boutons purement iconographiques, le nom accessible = l'infobulle
+        headerBtns.querySelectorAll('button').forEach(b => b.title && b.setAttribute('aria-label', b.title));
         header.appendChild(headerLeft); header.appendChild(headerBtns);
         box.appendChild(header);
 
@@ -1072,6 +1091,7 @@
             // ── Colonne 🎯 (recentrage) + indicateurs (diff / non chargé / lock) ──
             const td0 = tr.insertCell(); td0.className = 'center';
             const b0 = document.createElement('button'); b0.className = 'peu-btn-center'; b0.textContent = '🎯';
+            b0.title = t('locateTitle'); b0.setAttribute('aria-label', t('locateTitle'));
             b0.onclick = () => {
                 const v = W.model.venues.getObjectById(vid);
                 const bds = v?.getOLGeometry()?.getBounds();
