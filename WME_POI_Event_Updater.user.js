@@ -29,8 +29,8 @@
     const HISTORY_KEY = 'peu_file_history'; // clé localStorage
     const HISTORY_MAX = 5;
     const GEOM_KEY = 'peu_overlay_geom';    // taille + position mémorisées de l'overlay
-    // Icône de l'onglet (même SVG que le @icon d'en-tête) — affichée à la place du nom
-    const TAB_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+';
+    // Icône de l'onglet : pin de localisation (= POI), détouré, affiché à la place du nom
+    const TAB_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgd2lkdGg9JzI0JyBoZWlnaHQ9JzI0Jz48cGF0aCBmaWxsPScjMkM2RUQ1JyBkPSdNMTIgMkM4LjEzIDIgNSA1LjEzIDUgOWMwIDUuMjUgNyAxMyA3IDEzczctNy43NSA3LTEzYzAtMy44Ny0zLjEzLTctNy03eicvPjxjaXJjbGUgY3g9JzEyJyBjeT0nOScgcj0nMi42JyBmaWxsPScjZmZmZmZmJy8+PC9zdmc+';
     let poiData = [];
     let _peuLang = 'en'; // initialisé dans initScript avant tout appel à t()
 
@@ -542,12 +542,16 @@
         _peuLang = detectLang();
         injectCSS();
         const { tabLabel, tabPane } = W.userscripts.registerSidebarTab(scriptId);
-        // Icône à la place du nom (comme d'autres scripts), nom conservé en infobulle
+        // Icône à la place du nom (comme d'autres scripts), nom conservé en infobulle.
+        // tabLabel en flex centré → l'icône est centrée verticalement (ne touche plus le bord).
         tabLabel.textContent = '';
+        tabLabel.style.display = 'flex';
+        tabLabel.style.alignItems = 'center';
+        tabLabel.style.justifyContent = 'center';
         const tabIcon = document.createElement('img');
         tabIcon.src = TAB_ICON;
         tabIcon.alt = t('tabTitle');
-        tabIcon.style.cssText = 'width:22px;height:22px;display:block;margin:auto;';
+        tabIcon.style.cssText = 'width:18px;height:18px;display:block;';
         tabLabel.appendChild(tabIcon);
         tabLabel.title = t('tabTitle');
         await W.userscripts.waitForElementConnected(tabPane);
