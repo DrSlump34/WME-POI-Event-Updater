@@ -196,7 +196,7 @@
             background: #f9f9f9; width: 480px; min-width: 340px;
             max-width: 96vw; max-height: 88vh; min-height: 120px; border-radius: 10px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.35); display: flex; flex-direction: column;
-            overflow: hidden; pointer-events: all; resize: both;
+            overflow: hidden; pointer-events: all; resize: horizontal;
             transition: max-height 0.2s ease, box-shadow 0.2s;
         }
         .peu-box.minimized {
@@ -411,9 +411,12 @@
             if (!geomReady) return;                            // pas avant le placement initial
             if (box.classList.contains('minimized')) return;   // ne pas mémoriser l'état réduit
             if (!box.offsetWidth || !box.offsetHeight) return; // box détachée/masquée → ignorer
+            // On ne mémorise QUE la largeur et la position : la hauteur reste automatique
+            // (elle s'adapte au nombre de POI de chaque événement, sinon elle resterait
+            // figée sur une petite taille d'un événement précédent → tableau illisible).
             saveOverlayGeom({
                 left: box.offsetLeft, top: box.offsetTop,
-                width: box.offsetWidth, height: box.offsetHeight
+                width: box.offsetWidth
             });
         };
 
@@ -421,13 +424,11 @@
         // sinon largeur par défaut du CSS, ancrée en haut à droite (laisse voir la carte).
         const applyInitialGeom = () => {
             const saved = getOverlayGeom();
-            const valid = saved && saved.width > 0 && saved.height > 0
+            const valid = saved && saved.width > 0
                           && Number.isFinite(saved.left) && Number.isFinite(saved.top);
             const vw = window.innerWidth, vh = window.innerHeight;
-            if (valid) {
-                box.style.width  = Math.min(saved.width,  vw - 20) + 'px';
-                box.style.height = Math.min(saved.height, vh - 20) + 'px';
-            }
+            // Largeur restaurée si valide ; hauteur JAMAIS forcée → s'adapte au contenu.
+            if (valid) box.style.width = Math.min(saved.width, vw - 20) + 'px';
             const bw = box.offsetWidth, bh = box.offsetHeight;
             const left = valid ? saved.left : (vw - bw - 20); // défaut : coin haut-droit
             const top  = valid ? saved.top  : 64;              // sous le header WME
