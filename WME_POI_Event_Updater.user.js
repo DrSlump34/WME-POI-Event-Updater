@@ -542,12 +542,12 @@
         _peuLang = detectLang();
         injectCSS();
         const { tabLabel, tabPane } = W.userscripts.registerSidebarTab(scriptId);
-        // Icône à la place du nom (comme d'autres scripts), nom conservé en infobulle.
-        // tabLabel en flex centré → l'icône est centrée verticalement (ne touche plus le bord).
+        // Icône (pin) à la place du nom, nom conservé en infobulle.
         tabLabel.textContent = '';
         tabLabel.style.display = 'flex';
         tabLabel.style.alignItems = 'center';
         tabLabel.style.justifyContent = 'center';
+        tabLabel.style.height = '100%';
         const tabIcon = document.createElement('img');
         tabIcon.src = TAB_ICON;
         tabIcon.alt = t('tabTitle');
@@ -555,6 +555,15 @@
         tabLabel.appendChild(tabIcon);
         tabLabel.title = t('tabTitle');
         await W.userscripts.waitForElementConnected(tabPane);
+        // Le conteneur d'onglet (<a> parent) est étiré sur toute la hauteur de
+        // l'onglet ; on le centre aussi pour placer l'icône au milieu vertical
+        // (sinon elle se colle en haut). Vérifié en direct dans WME.
+        const tabLink = tabLabel.parentElement;
+        if (tabLink) {
+            tabLink.style.display = 'flex';
+            tabLink.style.alignItems = 'center';
+            tabLink.style.justifyContent = 'center';
+        }
 
         const container = document.createElement('div');
         container.className = 'peu-container';
