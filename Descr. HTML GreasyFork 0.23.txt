@@ -1,0 +1,97 @@
+<h2>🇫🇷 Description</h2>
+
+<p><strong>WME POI Event Updater</strong> est un script Tampermonkey destiné aux éditeurs Waze avancés qui gèrent des POI (lieux) dont le nom et la description changent selon les événements en cours (courses, festivals, manifestations sportives, etc.).</p>
+
+<p>Plutôt que de modifier chaque POI un par un dans WME, vous préparez un fichier Excel à l'avance avec toutes les variantes — et le script applique les modifications en quelques clics.</p>
+
+<h3>Fonctionnalités</h3>
+<ul>
+  <li>Chargement d'un fichier <code>.xlsx</code> dont chaque onglet correspond à un événement</li>
+  <li>Un onglet <strong>Off Season</strong> pour stocker l'état neutre/par défaut des POI (hors période événementielle)</li>
+  <li>Sélection de l'événement à appliquer via un menu déroulant</li>
+  <li>Tableau de comparaison <strong>Avant / Après</strong> pour le nom et la description de chaque POI</li>
+  <li>Modification inline avant application (nom et description éditables directement dans le tableau)</li>
+  <li>Bouton 🎯 pour centrer la carte sur chaque POI</li>
+  <li>Case à cocher par ligne pour inclure ou exclure certains POI de la mise à jour</li>
+  <li>Modifications appliquées via le système d'actions natif de WME — annulation possible avec <kbd>Ctrl+Z</kbd></li>
+</ul>
+
+<h3>Prérequis</h3>
+<ul>
+  <li><strong>Tampermonkey</strong> installé sur Chrome (ou navigateur compatible)</li>
+  <li>Compte Waze avec <strong>droits d'éditeur avancé</strong> sur les POI concernés</li>
+  <li>Fichier Excel respectant le format décrit ci-dessous</li>
+</ul>
+
+<h3>Format du fichier Excel</h3>
+<p>Chaque onglet représente un événement (ex : <em>Race Event</em>, <em>Music Festival</em>). L'onglet <strong>Off Season</strong> contient les valeurs neutres à réappliquer après l'événement.</p>
+<p>Chaque feuille doit contenir <strong>3 colonnes</strong>. La ligne 1 est l'en-tête (ignorée à la lecture) :</p>
+
+<table>
+  <thead>
+    <tr><th>A — POI Permalink</th><th>B — POI Name</th><th>C — POI Description</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>URL complète du POI (copiée depuis WME)</td><td>Nom à appliquer</td><td>Description à appliquer</td></tr>
+  </tbody>
+</table>
+
+<p>Le permalink s'obtient en sélectionnant un POI dans WME, puis en copiant l'URL de la barre d'adresse. Un fichier template est fourni en complément.</p>
+
+<h3>Installation</h3>
+<ol>
+  <li>Installer l'extension <strong>Tampermonkey</strong></li>
+  <li>Créer un nouveau script et coller le contenu</li>
+  <li>Sauvegarder et recharger WME</li>
+  <li>L'onglet <strong>POI Events</strong> apparaît dans le panneau latéral de WME</li>
+</ol>
+
+<hr>
+
+<h2>🇬🇧 Description</h2>
+
+<p><strong>WME POI Event Updater</strong> is a Tampermonkey script for advanced Waze editors who manage POIs (places) whose name and description need to change depending on ongoing events (races, festivals, sporting events, etc.).</p>
+
+<p>Instead of editing each POI one by one in WME, you prepare an Excel file in advance with all the variants — and the script applies the changes in just a few clicks.</p>
+
+<h3>Features</h3>
+<ul>
+  <li>Load a <code>.xlsx</code> file where each sheet corresponds to one event</li>
+  <li>A dedicated <strong>Off Season</strong> sheet to store the neutral/default state of POIs (outside event periods)</li>
+  <li>Select which event to apply via a dropdown menu</li>
+  <li>Before/After comparison table showing current and new name and description for each POI</li>
+  <li>Inline editing before applying (name and description are editable directly in the table)</li>
+  <li>🎯 Center button to locate each POI on the map</li>
+  <li>Per-row checkbox to include or exclude specific POIs from the update</li>
+  <li>Changes applied through WME's native action system — undoable with <kbd>Ctrl+Z</kbd></li>
+</ul>
+
+<h3>Requirements</h3>
+<ul>
+  <li><strong>Tampermonkey</strong> installed on Chrome (or compatible browser)</li>
+  <li>Waze account with <strong>advanced editor rights</strong> on the relevant POIs</li>
+  <li>An Excel file matching the format described below</li>
+</ul>
+
+<h3>Excel file format</h3>
+<p>Each sheet represents one event (e.g. <em>Race Event</em>, <em>Music Festival</em>). The <strong>Off Season</strong> sheet holds the neutral values to reapply once the event is over.</p>
+<p>Each sheet must contain <strong>3 columns</strong>. Row 1 is the header (skipped on load):</p>
+
+<table>
+  <thead>
+    <tr><th>A — POI Permalink</th><th>B — POI Name</th><th>C — POI Description</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Full POI URL (copied from WME address bar)</td><td>Name to apply</td><td>Description to apply</td></tr>
+  </tbody>
+</table>
+
+<p>The permalink is obtained by selecting a POI in WME and copying the URL from the address bar. A template file is provided alongside this script.</p>
+
+<h3>Installation</h3>
+<ol>
+  <li>Install the <strong>Tampermonkey</strong> extension</li>
+  <li>Create a new script and paste the content</li>
+  <li>Save and reload WME</li>
+  <li>The <strong>POI Events</strong> tab will appear in the WME side panel</li>
+</ol>

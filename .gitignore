@@ -1,0 +1,6 @@
+# Anciennes versions déjà archivées sur le disque — pas besoin de les suivre dans Git
+Archives/
+# Fichiers système
+Thumbs.db
+desktop.ini
+.DS_Store
