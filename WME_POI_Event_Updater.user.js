@@ -405,29 +405,36 @@
 
     function makeDraggable(box, handle) {
         let startX, startY, startLeft, startTop;
+        let geomReady = false; // passe à true une fois la position initiale posée
 
         const persist = () => {
-            if (box.classList.contains('minimized')) return; // ne pas mémoriser l'état réduit
+            if (!geomReady) return;                            // pas avant le placement initial
+            if (box.classList.contains('minimized')) return;   // ne pas mémoriser l'état réduit
+            if (!box.offsetWidth || !box.offsetHeight) return; // box détachée/masquée → ignorer
             saveOverlayGeom({
                 left: box.offsetLeft, top: box.offsetTop,
                 width: box.offsetWidth, height: box.offsetHeight
             });
         };
 
-        // Géométrie initiale : restaure la taille/position mémorisées, sinon
-        // largeur par défaut du CSS, ancrée en haut à droite (laisse voir la carte).
+        // Géométrie initiale : restaure la taille/position mémorisées SI valides,
+        // sinon largeur par défaut du CSS, ancrée en haut à droite (laisse voir la carte).
         const applyInitialGeom = () => {
             const saved = getOverlayGeom();
+            const valid = saved && saved.width > 0 && saved.height > 0
+                          && Number.isFinite(saved.left) && Number.isFinite(saved.top);
             const vw = window.innerWidth, vh = window.innerHeight;
-            if (saved?.width)  box.style.width  = Math.min(saved.width,  vw - 20) + 'px';
-            if (saved?.height) box.style.height = Math.min(saved.height, vh - 20) + 'px';
+            if (valid) {
+                box.style.width  = Math.min(saved.width,  vw - 20) + 'px';
+                box.style.height = Math.min(saved.height, vh - 20) + 'px';
+            }
             const bw = box.offsetWidth, bh = box.offsetHeight;
-            let left = saved?.left, top = saved?.top;
-            if (left == null) left = vw - bw - 20; // par défaut : coin haut-droit
-            if (top  == null) top  = 64;            // sous le header WME
+            const left = valid ? saved.left : (vw - bw - 20); // défaut : coin haut-droit
+            const top  = valid ? saved.top  : 64;              // sous le header WME
             // Clamp dans le viewport (la fenêtre a pu changer de taille depuis)
             box.style.left = Math.max(0, Math.min(vw - bw, left)) + 'px';
             box.style.top  = Math.max(0, Math.min(vh - bh, top)) + 'px';
+            geomReady = true;
         };
         requestAnimationFrame(applyInitialGeom);
 
