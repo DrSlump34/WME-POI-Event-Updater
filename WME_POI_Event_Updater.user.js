@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.47
+// @version      0.48
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -28,6 +28,7 @@
     const scriptId   = 'poi-event-updater';
     const HISTORY_KEY = 'peu_file_history'; // clé localStorage
     const HISTORY_MAX = 5;
+    const GEOM_KEY = 'peu_overlay_geom';    // taille + position mémorisées de l'overlay
     let poiData = [];
     let _peuLang = 'en'; // initialisé dans initScript avant tout appel à t()
 
@@ -49,8 +50,7 @@
                 historyTitle:'Fichiers récents', histLoaded:'📂 Chargé :', histApplied:'✔ Appliqué :',
                 histNeverApplied:'✔ Jamais appliqué', filterPlaceholder:'🔍 Filtrer par nom…',
                 draggable:'✥ déplaçable',
-                colSearch:'🔍', colOldName:'Avant — Nom', colNewName:'Après — Nom',
-                colOldDesc:'Avant — Desc', colNewDesc:'Après — Desc',
+                colSearch:'🔍', colName:'Nom', colDesc:'Description',
                 btnMinimize:'Réduire / Restaurer', btnRestore:'Restaurer',
                 btnApply:'Appliquer', btnClose:'Fermer',
                 btnDiffActive:'≠ Diff', btnDiffAll:'≡ Tout', btnUpToDate:'✅ À jour',
@@ -97,8 +97,7 @@
                 historyTitle:'Recent files', histLoaded:'📂 Loaded:', histApplied:'✔ Applied:',
                 histNeverApplied:'✔ Never applied', filterPlaceholder:'🔍 Filter by name…',
                 draggable:'✥ draggable',
-                colSearch:'🔍', colOldName:'Before — Name', colNewName:'After — Name',
-                colOldDesc:'Before — Desc', colNewDesc:'After — Desc',
+                colSearch:'🔍', colName:'Name', colDesc:'Description',
                 btnMinimize:'Minimize / Restore', btnRestore:'Restore',
                 btnApply:'Apply', btnClose:'Close',
                 btnDiffActive:'≠ Diff', btnDiffAll:'≡ All', btnUpToDate:'✅ Up to date',
@@ -151,6 +150,13 @@
     function saveHistory(history) {
         try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch {}
     }
+    function getOverlayGeom() {
+        try { return JSON.parse(localStorage.getItem(GEOM_KEY)) || null; }
+        catch { return null; }
+    }
+    function saveOverlayGeom(g) {
+        try { localStorage.setItem(GEOM_KEY, JSON.stringify(g)); } catch {}
+    }
     function formatDateTime(iso) {
         if (!iso) return '—';
         const d = new Date(iso);
@@ -178,9 +184,10 @@
         }
         .peu-box {
             position: absolute;
-            background: #f9f9f9; width: 80vw; max-height: 85vh; border-radius: 10px;
+            background: #f9f9f9; width: 480px; min-width: 340px;
+            max-width: 96vw; max-height: 88vh; min-height: 120px; border-radius: 10px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.35); display: flex; flex-direction: column;
-            overflow: hidden; pointer-events: all;
+            overflow: hidden; pointer-events: all; resize: both;
             transition: max-height 0.2s ease, box-shadow 0.2s;
         }
         .peu-box.minimized {
@@ -236,12 +243,10 @@
             width: 100%; border-collapse: collapse; table-layout: fixed;
             font-size: 11.5px; color: #222;
         }
-        .peu-table colgroup col:nth-child(1) { width: 4%; }
-        .peu-table colgroup col:nth-child(2) { width: 19%; }
-        .peu-table colgroup col:nth-child(3) { width: 19%; }
-        .peu-table colgroup col:nth-child(4) { width: 24%; }
-        .peu-table colgroup col:nth-child(5) { width: 24%; }
-        .peu-table colgroup col:nth-child(6) { width: 10%; }
+        .peu-table colgroup col:nth-child(1) { width: 34px; }
+        .peu-table colgroup col:nth-child(2) { width: 42%; }
+        .peu-table colgroup col:nth-child(3) { width: 46%; }
+        .peu-table colgroup col:nth-child(4) { width: 30px; }
         .peu-table thead th {
             background: #e8eef8; color: #2C6ED5; font-size: 11px; font-weight: 700;
             text-transform: uppercase; letter-spacing: 0.4px; padding: 6px 5px;
@@ -266,7 +271,15 @@
             vertical-align: middle; word-break: break-word;
         }
         .peu-table td.center { text-align: center; }
-        .peu-table td.old { color: #555; font-style: italic; }
+        /* Vue fusionnée : ancienne valeur affichée au-dessus du champ éditable */
+        .peu-cell-old {
+            color: #8a8a8a; font-size: 10px; line-height: 1.25;
+            margin-bottom: 3px; word-break: break-word; white-space: pre-wrap;
+        }
+        .peu-cell-old.changed {
+            color: #c0392b; text-decoration: line-through;
+            text-decoration-color: rgba(192,57,43,0.5);
+        }
         .peu-lock-ok   { font-size: 13px; cursor: default; }
         .peu-lock-sae  { font-size: 13px; cursor: default; color: #e67e22; }
         .peu-lock-hard { font-size: 13px; cursor: default; color: #c0392b; }
@@ -346,8 +359,23 @@
     }
 
     function getVenueIdFromPermalink(url) {
-        const m = url.match(/venues=([\d.]+)/);
-        return m ? m[1] : null;
+        // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique
+        // (nouveau), éventuellement plusieurs séparés par des virgules → on prend le 1er.
+        const m = url.match(/venues=([^&,]+)/);
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    // Extrait lat/lon d'un permalink en gérant les valeurs négatives
+    // (hémisphère sud pour lat, ouest de Greenwich pour lon) → indispensable
+    // pour un fonctionnement mondial. Retourne {lat, lon} ou null si absent/invalide.
+    function parseLatLon(url) {
+        try {
+            const p = new URL(url).searchParams;
+            const lat = parseFloat(p.get('lat'));
+            const lon = parseFloat(p.get('lon'));
+            if (isNaN(lat) || isNaN(lon)) return null;
+            return { lat, lon };
+        } catch { return null; }
     }
 
     // Retourne le statut de lock d'un venue par rapport au rang de l'éditeur connecté
@@ -366,14 +394,38 @@
     function makeDraggable(box, handle) {
         let startX, startY, startLeft, startTop;
 
-        // Position initiale : sous le header WME (~60px), centré horizontalement
-        const setInitialPos = () => {
-            const vw = window.innerWidth;
-            const bw = box.offsetWidth;
-            box.style.left = Math.max(0, (vw - bw) / 2) + 'px';
-            box.style.top  = '64px';
+        const persist = () => {
+            if (box.classList.contains('minimized')) return; // ne pas mémoriser l'état réduit
+            saveOverlayGeom({
+                left: box.offsetLeft, top: box.offsetTop,
+                width: box.offsetWidth, height: box.offsetHeight
+            });
         };
-        requestAnimationFrame(setInitialPos);
+
+        // Géométrie initiale : restaure la taille/position mémorisées, sinon
+        // largeur par défaut du CSS, ancrée en haut à droite (laisse voir la carte).
+        const applyInitialGeom = () => {
+            const saved = getOverlayGeom();
+            const vw = window.innerWidth, vh = window.innerHeight;
+            if (saved?.width)  box.style.width  = Math.min(saved.width,  vw - 20) + 'px';
+            if (saved?.height) box.style.height = Math.min(saved.height, vh - 20) + 'px';
+            const bw = box.offsetWidth, bh = box.offsetHeight;
+            let left = saved?.left, top = saved?.top;
+            if (left == null) left = vw - bw - 20; // par défaut : coin haut-droit
+            if (top  == null) top  = 64;            // sous le header WME
+            // Clamp dans le viewport (la fenêtre a pu changer de taille depuis)
+            box.style.left = Math.max(0, Math.min(vw - bw, left)) + 'px';
+            box.style.top  = Math.max(0, Math.min(vh - bh, top)) + 'px';
+        };
+        requestAnimationFrame(applyInitialGeom);
+
+        // Mémorise la taille quand l'utilisateur redimensionne (poignée native, débounce léger)
+        let saveTO = null;
+        const ro = new ResizeObserver(() => {
+            clearTimeout(saveTO);
+            saveTO = setTimeout(persist, 300);
+        });
+        ro.observe(box);
 
         handle.addEventListener('mousedown', e => {
             // Ne pas déclencher sur les boutons
@@ -396,6 +448,7 @@
         function onUp() {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            persist();
         }
     }
 
@@ -424,9 +477,9 @@
     // ────────────────────────────────────────────────────────────────────────
     function centerAndLoad(permalink, vid, timeoutMs = 3000) {
         return new Promise(resolve => {
-            const lat = parseFloat(permalink.match(/lat=([\d.]+)/)?.[1]);
-            const lon = parseFloat(permalink.match(/lon=([\d.]+)/)?.[1]);
-            if (!lat || !lon) return resolve(null);
+            const coords = parseLatLon(permalink);
+            if (!coords) return resolve(null);
+            const { lat, lon } = coords;
 
             const lonlat = new OpenLayers.LonLat(lon, lat).transform(
                 new OpenLayers.Projection('EPSG:4326'),
@@ -836,18 +889,16 @@
         const scroll = document.createElement('div'); scroll.className = 'peu-scroll';
         const table = document.createElement('table'); table.className = 'peu-table';
         const cg = document.createElement('colgroup');
-        [null,null,null,null,null,null].forEach(() => cg.appendChild(document.createElement('col')));
+        [null,null,null,null].forEach(() => cg.appendChild(document.createElement('col')));
         table.appendChild(cg);
         const thead = table.createTHead(); const trh = thead.insertRow();
 
         // Colonnes : [label, sortable, extractFn]
         // extractFn sera définie après construction du tbody (accès à tr._inputs)
         const colDefs = [
-            { label: t('colSearch'),  sortable: false },
-            { label: t('colOldName'), sortable: true,  key: 'oldName' },
-            { label: t('colNewName'), sortable: true,  key: 'newName' },
-            { label: t('colOldDesc'), sortable: true,  key: 'oldDesc' },
-            { label: t('colNewDesc'), sortable: true,  key: 'newDesc' },
+            { label: t('colSearch'), sortable: false },
+            { label: t('colName'),   sortable: true,  key: 'newName' },
+            { label: t('colDesc'),   sortable: true,  key: 'newDesc' },
             { label: null,           sortable: false, master: true },
         ];
 
@@ -870,7 +921,7 @@
                     tbody.querySelectorAll('tr').forEach(tr => {
                         if (tr.style.display === 'none') return;
                         const {cb} = tr._inputs;
-                        if (!cb.disabled) cb.checked = masterCb.checked;
+                        if (!cb.disabled) { cb.checked = masterCb.checked; tr._cbUserSet = true; }
                     });
                 });
                 th.appendChild(masterCb);
@@ -949,25 +1000,13 @@
             const oldDesc = venue?.attributes?.description || '';
             const venueLoaded = !!venue; // false si préchargement échoué
 
-            // Données de tri stockées sur la ligne (mises à jour si l'utilisateur édite)
+            // Données de tri/filtre stockées sur la ligne (mises à jour si l'utilisateur édite)
             tr.dataset.oldName = oldName;
             tr.dataset.oldDesc = oldDesc;
             tr.dataset.newName = p.name;
             tr.dataset.newDesc = p.desc;
+            tr._cbUserSet = false; // passe à true dès que l'utilisateur (dé)coche lui-même
 
-            // Fonction de mise à jour de l'indicateur diff (appellée à la construction + à chaque input)
-            function updateDiff() {
-                const isDiff = tr.dataset.newName !== tr.dataset.oldName ||
-                               tr.dataset.newDesc !== tr.dataset.oldDesc;
-                tr.dataset.hasDiff = isDiff ? 'true' : 'false';
-                // Ne pas écraser hard/sae
-                if (lockStatus === 'ok') {
-                    tr.classList.toggle('peu-row-diff', isDiff);
-                }
-                if (diffDot) diffDot.style.display = isDiff ? 'block' : 'none';
-                // Cocher uniquement si diff réel (et non désactivé)
-                if (!cb.disabled) cb.checked = isDiff;
-            }
             const lockStatus = getLockStatus(venue);
             const lockRank = venue?.attributes?.lockRank ?? 0;
             const userRank = W?.loginManager?.user?.attributes?.rank ?? 0;
@@ -977,7 +1016,23 @@
             } else if (lockStatus === 'sae')  { cntSae++;  tr.classList.add('peu-row-sae'); }
             if (lockStatus === 'hard') { cntHard++; tr.classList.add('peu-row-hard'); }
 
-            // Colonne 🎯 + icône lock + diff dot
+            // Met à jour l'indicateur diff (à la construction + à chaque frappe)
+            function updateDiff() {
+                const nameChanged = tr.dataset.newName !== tr.dataset.oldName;
+                const descChanged = tr.dataset.newDesc !== tr.dataset.oldDesc;
+                const isDiff = nameChanged || descChanged;
+                tr.dataset.hasDiff = isDiff ? 'true' : 'false';
+                // Ne pas écraser hard/sae
+                if (lockStatus === 'ok') tr.classList.toggle('peu-row-diff', isDiff);
+                diffDot.style.display = isDiff ? 'block' : 'none';
+                // Barrer l'ancienne valeur uniquement si elle change réellement
+                if (oldNameEl) oldNameEl.classList.toggle('changed', nameChanged);
+                if (oldDescEl) oldDescEl.classList.toggle('changed', descChanged);
+                // Cochage auto tant que l'utilisateur n'a pas décidé lui-même
+                if (!cb.disabled && !tr._cbUserSet) cb.checked = isDiff;
+            }
+
+            // ── Colonne 🎯 (recentrage) + indicateurs (diff / non chargé / lock) ──
             const td0 = tr.insertCell(); td0.className = 'center';
             const b0 = document.createElement('button'); b0.className = 'peu-btn-center'; b0.textContent = '🎯';
             b0.onclick = () => {
@@ -989,11 +1044,10 @@
                     else W.map.setCenter(center);
                     return;
                 }
-                // Fallback : le venue n'est plus en mémoire → recentrer via le permalink
-                const lat = parseFloat(p.perm.match(/lat=([\d.]+)/)?.[1]);
-                const lon = parseFloat(p.perm.match(/lon=([\d.]+)/)?.[1]);
-                if (lat && lon) {
-                    const ll = new OpenLayers.LonLat(lon, lat).transform(
+                // Fallback : venue plus en mémoire → recentrer via le permalink
+                const coords = parseLatLon(p.perm);
+                if (coords) {
+                    const ll = new OpenLayers.LonLat(coords.lon, coords.lat).transform(
                         new OpenLayers.Projection('EPSG:4326'),
                         W.map.getProjectionObject()
                     );
@@ -1002,12 +1056,10 @@
             };
             td0.appendChild(b0);
 
-            // Point bleu indicateur de diff (sous le 🎯)
             const diffDot = document.createElement('span'); diffDot.className = 'peu-diff-dot';
             diffDot.title = t('diffTitle'); diffDot.style.display = 'none';
             td0.appendChild(diffDot);
 
-            // Icône non chargé
             if (!venueLoaded) {
                 const unloadedIcon = document.createElement('span');
                 unloadedIcon.className = 'peu-unloaded-icon';
@@ -1015,8 +1067,6 @@
                 unloadedIcon.title = t('unloadedTitle');
                 td0.appendChild(unloadedIcon);
             }
-
-            // Icône lock sous le bouton 🎯
             if (lockStatus !== 'ok') {
                 const lockIcon = document.createElement('div');
                 lockIcon.className = lockStatus === 'hard' ? 'peu-lock-hard' : 'peu-lock-sae';
@@ -1027,32 +1077,40 @@
                 td0.appendChild(lockIcon);
             }
 
-            // Avant Nom
-            const tdON = tr.insertCell(); tdON.className = 'old'; tdON.textContent = oldName;
-
-            // Après Nom
-            const tdNN = tr.insertCell();
+            // ── Colonne NOM (ancien au-dessus, barré si modifié, + champ éditable) ──
+            const tdName = tr.insertCell();
+            let oldNameEl = null;
+            if (oldName) {
+                oldNameEl = document.createElement('div');
+                oldNameEl.className = 'peu-cell-old';
+                oldNameEl.textContent = oldName;
+                tdName.appendChild(oldNameEl);
+            }
             const inpName = document.createElement('input'); inpName.className = 'peu-input'; inpName.value = p.name;
             if (lockStatus === 'hard') inpName.disabled = true;
             inpName.addEventListener('input', () => { tr.dataset.newName = inpName.value; updateDiff(); applyFilters(); });
-            tdNN.appendChild(inpName);
+            tdName.appendChild(inpName);
 
-            // Avant Desc
-            const tdOD = tr.insertCell(); tdOD.className = 'old'; tdOD.textContent = oldDesc;
-
-            // Après Desc
-            const tdND = tr.insertCell();
+            // ── Colonne DESCRIPTION (ancienne au-dessus, barrée si modifiée, + champ) ──
+            const tdDesc = tr.insertCell();
+            let oldDescEl = null;
+            if (oldDesc) {
+                oldDescEl = document.createElement('div');
+                oldDescEl.className = 'peu-cell-old';
+                oldDescEl.textContent = oldDesc;
+                tdDesc.appendChild(oldDescEl);
+            }
             const txtArea = document.createElement('textarea'); txtArea.className = 'peu-textarea'; txtArea.value = p.desc;
             if (lockStatus === 'hard') txtArea.disabled = true;
             txtArea.addEventListener('input', () => { tr.dataset.newDesc = txtArea.value; updateDiff(); applyFilters(); });
-            tdND.appendChild(txtArea);
+            tdDesc.appendChild(txtArea);
 
-            // Checkbox — initialisée à false, updateDiff() la cochera si diff réel
+            // ── Colonne case à cocher ──
             const tdCB = tr.insertCell(); tdCB.className = 'center';
             const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'peu-checkbox';
             cb.checked = false;
             if (lockStatus === 'hard' || !venueLoaded) cb.disabled = true;
-            cb.addEventListener('change', updateMasterCb);
+            cb.addEventListener('change', () => { tr._cbUserSet = true; updateMasterCb(); });
             tdCB.appendChild(cb);
 
             tr._inputs = {vid, inpName, txtArea, cb};
