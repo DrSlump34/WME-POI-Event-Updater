@@ -321,14 +321,15 @@
         }
         .peu-btn-center:hover { background: #dce8fb; }
         .peu-input, .peu-textarea {
-            width: 100%; box-sizing: border-box; font-size: 11.5px; font-family: inherit;
+            width: 100%; box-sizing: border-box; height: 36px;
+            font-size: 11.5px; font-family: inherit;
             border: 1px solid #c5d3e8; border-radius: 4px; padding: 3px 5px;
             background: #fff; color: #222; resize: none; transition: border 0.15s;
         }
         .peu-input:focus, .peu-textarea:focus {
             outline: none; border-color: #2C6ED5; background: #f0f6ff;
         }
-        .peu-textarea { height: 36px; overflow-y: auto; line-height: 1.3; }
+        .peu-textarea { overflow-y: auto; line-height: 1.3; }
         .peu-checkbox { width: 14px; height: 14px; cursor: pointer; accent-color: #2C6ED5; }
         .peu-footer {
             padding: 6px 14px; background: #f0f4fb; border-top: 1px solid #dde3ee;
