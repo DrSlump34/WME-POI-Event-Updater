@@ -268,13 +268,15 @@
         .peu-table tbody tr:hover { background: #dce8fb; }
         .peu-table td {
             padding: 4px 5px; border-bottom: 1px solid #e0e0e0;
-            vertical-align: middle; word-break: break-word;
+            vertical-align: top; word-break: break-word;
         }
         .peu-table td.center { text-align: center; }
-        /* Vue fusionnée : ancienne valeur affichée au-dessus du champ éditable */
+        /* Vue fusionnée : ancienne valeur (1 ligne, tronquée) au-dessus du champ.
+           Hauteur fixe identique dans les 2 colonnes → les champs restent alignés. */
         .peu-cell-old {
-            color: #8a8a8a; font-size: 10px; line-height: 1.25;
-            margin-bottom: 3px; word-break: break-word; white-space: pre-wrap;
+            color: #8a8a8a; font-size: 10px; line-height: 1.4; height: 14px;
+            margin-bottom: 3px; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis;
         }
         .peu-cell-old.changed {
             color: #c0392b; text-decoration: line-through;
@@ -490,7 +492,10 @@
             const t0 = Date.now();
             const poll = setInterval(() => {
                 const v = W.model.venues.getObjectById(vid);
-                const ready = v && v.attributes.name && (typeof v.isEditable !== 'function' || v.isEditable());
+                // « Chargé » = venue présent avec un nom. On n'exige PAS isEditable() :
+                // un POI verrouillé au-dessus du rang de l'éditeur est bien chargé,
+                // il sera simplement proposé en Suggest an Edit (cf. getLockStatus).
+                const ready = v && v.attributes && v.attributes.name;
                 if (ready || Date.now() - t0 > timeoutMs) {
                     clearInterval(poll);
                     resolve(ready ? v : null);
@@ -1077,15 +1082,21 @@
                 td0.appendChild(lockIcon);
             }
 
+            // La ligne « ancienne valeur » est réservée dans les DEUX colonnes dès que
+            // l'une des deux a une valeur, afin que les champs restent alignés.
+            const hasOld = !!oldName || !!oldDesc;
+            const makeOldEl = (val) => {
+                const el = document.createElement('div');
+                el.className = 'peu-cell-old';
+                el.textContent = val;
+                if (val) el.title = val; // texte complet en infobulle (affichage tronqué)
+                return el;
+            };
+
             // ── Colonne NOM (ancien au-dessus, barré si modifié, + champ éditable) ──
             const tdName = tr.insertCell();
             let oldNameEl = null;
-            if (oldName) {
-                oldNameEl = document.createElement('div');
-                oldNameEl.className = 'peu-cell-old';
-                oldNameEl.textContent = oldName;
-                tdName.appendChild(oldNameEl);
-            }
+            if (hasOld) { oldNameEl = makeOldEl(oldName); tdName.appendChild(oldNameEl); }
             const inpName = document.createElement('input'); inpName.className = 'peu-input'; inpName.value = p.name;
             if (lockStatus === 'hard') inpName.disabled = true;
             inpName.addEventListener('input', () => { tr.dataset.newName = inpName.value; updateDiff(); applyFilters(); });
@@ -1094,12 +1105,7 @@
             // ── Colonne DESCRIPTION (ancienne au-dessus, barrée si modifiée, + champ) ──
             const tdDesc = tr.insertCell();
             let oldDescEl = null;
-            if (oldDesc) {
-                oldDescEl = document.createElement('div');
-                oldDescEl.className = 'peu-cell-old';
-                oldDescEl.textContent = oldDesc;
-                tdDesc.appendChild(oldDescEl);
-            }
+            if (hasOld) { oldDescEl = makeOldEl(oldDesc); tdDesc.appendChild(oldDescEl); }
             const txtArea = document.createElement('textarea'); txtArea.className = 'peu-textarea'; txtArea.value = p.desc;
             if (lockStatus === 'hard') txtArea.disabled = true;
             txtArea.addEventListener('input', () => { tr.dataset.newDesc = txtArea.value; updateDiff(); applyFilters(); });
