@@ -1,5 +1,8 @@
 # Anciennes versions déjà archivées sur le disque — pas besoin de les suivre dans Git
 Archives/
+# Fichiers de données de travail réels (événements) — seul le modèle *_Template.xlsx est suivi
+*.xlsx
+!*_Template.xlsx
 # Fichiers système
 Thumbs.db
 desktop.ini
