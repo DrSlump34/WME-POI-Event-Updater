@@ -300,6 +300,27 @@
         .peu-table tr.peu-row-hard { background: #fff0f0 !important; opacity: 0.7; }
         .peu-table tr.peu-row-diff { background: #eef4ff !important; }
         .peu-table tr.peu-row-diff:hover { background: #dce8fb !important; }
+
+        /* ── Les champs du lot D2, sous la ligne du lieu ──
+           ⭐ Cette ligne n'existe QUE si le classeur porte autre chose que le nom
+              et la description : un fichier d'hier garde exactement l'aspect
+              d'hier. */
+        .peu-table tr.peu-row-plus > td {
+            border-top: none; padding: 0 6px 6px 30px;
+            font-size: 11px; line-height: 1.5; color: #555;
+        }
+        .peu-plus { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+        .peu-pastille {
+            border-radius: 3px; padding: 1px 6px; white-space: nowrap;
+            border: 1px solid transparent;
+        }
+        /* Le vert n'est PAS décoratif : il dit « le script écrira ceci ». */
+        .peu-pastille-pose   { background: #eaf6ec; border-color: #bfe0c6; color: #1e6b2f; }
+        /* Le gris dit « à toi de le poser » — ni succès, ni alerte. */
+        .peu-pastille-montre { background: #f2f2f2; border-color: #ddd;    color: #555; }
+        .peu-pastille-refus  { background: #fdeceb; border-color: #f5c6c2; color: #a3281e; }
+        .peu-pastille b { font-weight: 600; }
+        .peu-pastille-titre { color: #888; padding: 1px 0; }
         .peu-table tr.peu-row-unloaded { background: #fafafa !important; opacity: 0.6; }
         .peu-unloaded-icon { font-size: 11px; color: #aaa; display: block; margin-top: 2px; }
         .peu-diff-dot {
@@ -390,11 +411,10 @@
           connaît. */
     const VALEURS_WME = {
         parkingType: {
-            PUBLIC: ['public'], PRIVATE: ['privé', 'prive'], RESTRICTED: ['restreint']
+            PUBLIC: ['Public'], PRIVATE: ['Privé'], RESTRICTED: ['Restreint']
         },
         costType: {
-            FREE: ['gratuit'], LOW: ['faible'], MODERATE: ['modéré', 'modere'],
-            EXPENSIVE: ['élevé', 'eleve']
+            FREE: ['Gratuit'], LOW: ['Faible'], MODERATE: ['Modéré'], EXPENSIVE: ['Élevé']
         },
         estimatedNumberOfSpots: {
             R_1_TO_10: ['1-10'], R_11_TO_30: ['11-30'], R_31_TO_60: ['31-60'],
@@ -402,19 +422,15 @@
             R_600_PLUS: ['> 600', '>600', 'plus-600']
         },
         lotType: {
-            MULTI_LEVEL: ['plusieurs niveaux'], STREET_LEVEL: ['extérieur', 'exterieur'],
-            STREET_LEVEL_COVERED: ['extérieur couvert', 'exterieur couvert'],
-            UNDERGROUND: ['souterrain']
+            MULTI_LEVEL: ['Plusieurs niveaux'], STREET_LEVEL: ['Extérieur'],
+            STREET_LEVEL_COVERED: ['Extérieur couvert'], UNDERGROUND: ['Souterrain']
         },
         paymentType: {
-            CASH: ['espèces', 'especes'], CHECKS: ['chèques', 'cheques'],
-            CREDIT: ['carte de crédit', 'carte de credit'],
-            DEBIT_CARD: ['carte bancaire'],
-            DIGITAL_WALLET: ['portefeuille numérique', 'portefeuille numerique'],
-            ELECTRONIC_PASS: ['pass électronique', 'pass electronique'],
-            MEMBERSHIP: ['abonnement'], PARKING_APP: ['application'],
-            PERMIT: ['laissez-passer'], PREPAID: ['prépaiement', 'prepaiement'],
-            SMS_CALL: ['sms/appel', 'sms appel']
+            CASH: ['Espèces'], CHECKS: ['Chèques'], CREDIT: ['Carte de crédit'],
+            DEBIT_CARD: ['Carte bancaire'], DIGITAL_WALLET: ['Portefeuille numérique'],
+            ELECTRONIC_PASS: ['Pass électronique'], MEMBERSHIP: ['Abonnement'],
+            PARKING_APP: ['Application'], PERMIT: ['Laissez-passer'],
+            PREPAID: ['Prépaiement'], SMS_CALL: ['SMS/Appel', 'sms appel']
         },
         /* ⚠️⚠️ « services » EST LE MÊME CHAMP POUR UN LIEU ET POUR UN PARKING :
               c'est la CATÉGORIE du lieu qui décide des valeurs proposées. D'où deux
@@ -425,25 +441,25 @@
            📌 « VALLET » est la graphie de Waze, faute de frappe comprise : on la
               recopie, on ne la corrige pas. */
         services: {
-            AIR_CONDITIONING: ['climatisation'],
-            CREDIT_CARDS: ['accepte les cartes de crédit', 'accepte les cartes de credit'],
-            CURBSIDE_PICKUP: ['click & collect', 'click and collect'],
-            DELIVERIES: ['livraisons'], DRIVETHROUGH: ['drive'],
-            OUTSIDE_SEATING: ['terrasse extérieure', 'terrasse exterieure'],
-            PARKING_FOR_CUSTOMERS: ['parking client'], RESERVATIONS: ['réservations', 'reservations'],
-            RESTROOMS: ['toilettes'], TAKE_AWAY: ['à emporter', 'a emporter'],
-            VALLET_SERVICE: ['service de voiturier'],
-            WHEELCHAIR_ACCESSIBLE: ['accessible en fauteuil roulant'], WI_FI: ['wi-fi', 'wifi']
+            AIR_CONDITIONING: ['Climatisation'],
+            CREDIT_CARDS: ['Accepte les cartes de crédit'],
+            CURBSIDE_PICKUP: ['Click & Collect', 'click and collect'],
+            DELIVERIES: ['Livraisons'], DRIVETHROUGH: ['Drive'],
+            OUTSIDE_SEATING: ['Terrasse extérieure'],
+            PARKING_FOR_CUSTOMERS: ['Parking client'], RESERVATIONS: ['Réservations'],
+            RESTROOMS: ['Toilettes'], TAKE_AWAY: ['À emporter'],
+            VALLET_SERVICE: ['Service de voiturier'],
+            WHEELCHAIR_ACCESSIBLE: ['Accessible en fauteuil roulant'], WI_FI: ['Wi-Fi', 'wifi']
         },
         parkingServices: {
-            AIRPORT_SHUTTLE: ['navette aéroport', 'navette aeroport'],
-            CARPOOL_PARKING: ['places covoiturage'], CAR_WASH: ['lavage auto'],
-            COVERED: ['couvert'], DISABILITY_PARKING: ['places pmr'],
-            ON_SITE_ATTENDANT: ['agent d’accueil', "agent d'accueil"],
-            PARK_AND_RIDE: ['p+r'], RESERVATIONS: ['réservations', 'reservations'],
-            SECURITY: ['surveillance'], VALET: ['voiturier'],
-            VALLET_SERVICE: ['service de voiturier'],
-            EV_CHARGING_STATION: ['bornes de charge']
+            AIRPORT_SHUTTLE: ['Navette aéroport'],
+            CARPOOL_PARKING: ['Places covoiturage'], CAR_WASH: ['Lavage auto'],
+            COVERED: ['Couvert'], DISABILITY_PARKING: ['Places PMR'],
+            ON_SITE_ATTENDANT: ['Agent d’accueil', "agent d'accueil"],
+            PARK_AND_RIDE: ['P+R'], RESERVATIONS: ['Réservations'],
+            SECURITY: ['Surveillance'], VALET: ['Voiturier'],
+            VALLET_SERVICE: ['Service de voiturier'],
+            EV_CHARGING_STATION: ['Bornes de charge']
         }
     };
 
@@ -524,7 +540,7 @@
         { cle: 'parkingType', entetes: ['parking type', 'type de parking'],
           cible: 'PARKING_LOT.parkingType', pose: true, referentiel: 'parkingType', libelle: 'Type de parking' },
         { cle: 'hasTBR',      entetes: ['parking type varies', 'type variable'],
-          cible: 'PARKING_LOT.hasTBR', pose: true, booleen: true, libelle: 'Le type varie selon l’heure ou le jour' },
+          cible: 'PARKING_LOT.hasTBR', pose: true, booleen: true, libelle: 'Type variable' },
         { cle: 'costType',    entetes: ['parking cost', 'tarif', 'tarif du parking'],
           cible: 'PARKING_LOT.costType', pose: true, referentiel: 'costType', libelle: 'Tarif' },
         { cle: 'paymentType', entetes: ['parking payment', 'modes de paiement', 'paiements'],
@@ -536,7 +552,7 @@
         { cle: 'spots',       entetes: ['parking spots', 'nombre de places', 'places'],
           cible: 'PARKING_LOT.estimatedNumberOfSpots', pose: true, referentiel: 'estimatedNumberOfSpots', libelle: 'Nombre de places' },
         { cle: 'canExit',     entetes: ['parking exit when closed', 'sortie parking ferme', 'sortie parking fermé'],
-          cible: 'PARKING_LOT.canExitWhileClosed', pose: true, booleen: true, libelle: 'Sortie possible quand le parking est fermé' },
+          cible: 'PARKING_LOT.canExitWhileClosed', pose: true, booleen: true, libelle: 'Sortie quand fermé' },
 
         /* ---- Montrés seulement ---- */
         { cle: 'categories',  entetes: ['categories', 'catégories', 'category', 'catégorie'],
@@ -709,6 +725,119 @@
     }
     // ==== /banc:colonnes ====
 
+
+    // ==== banc:apercu ====
+    // Rendu pur : il ne touche qu'au document qu'on lui donne, pour être
+    // éprouvable hors de WME (tools/banc-apercu.html).
+
+    /** Le libellé d'un champ posé, retrouvé par sa cible. */
+    function libelleDeCible(cible) {
+        const champ = CHAMPS.find(c => c.cible === cible && c.pose);
+        return champ ? champ.libelle : cible;
+    }
+
+    /**
+     * Le libellé lisible d'une clé de WME, cherché dans TOUS les référentiels.
+     *
+     * ⚠️⚠️ NE JAMAIS AFFICHER LA CLÉ BRUTE À L'OPÉRATEUR. Le premier rendu
+     *    montrait « Tarif MODERATE » et « Nombre de places R_101_TO_300 » : c'est
+     *    le vocabulaire de la machine, et il oblige à traduire de tête au moment
+     *    où l'on décide d'appliquer ou non.
+     * ⚠️ La recherche passe par tous les référentiels parce qu'une valeur peut
+     *    venir de l'un ou l'autre — `VALET` n'existe que du côté parking, alors
+     *    que les deux colonnes visent le même attribut.
+     */
+    function libelleDeValeur(cle) {
+        for (const table of Object.values(VALEURS_WME)) {
+            if (table[cle] && table[cle].length) {
+                return table[cle][0];
+            }
+        }
+        return cle;
+    }
+
+    /** Ce qu'une valeur posée donne à lire : les listes se NOMMENT, elles ne se comptent pas. */
+    function valeurLisible(v) {
+        if (v === true) return 'oui';
+        if (v === false) return 'non';
+        if (Array.isArray(v)) {
+            const noms = v.map(libelleDeValeur);
+            const texte = noms.join(', ');
+            /* Au-delà de trois, on nomme les deux premières et on compte le reste :
+               une pastille qui déborde ne se lit plus. */
+            return texte.length <= 44 ? texte : noms.slice(0, 2).join(', ') + ' +' + (noms.length - 2);
+        }
+        const texte = libelleDeValeur(String(v));
+        return texte.length > 28 ? texte.slice(0, 27) + '…' : texte;
+    }
+
+    /**
+     * La ligne des champs supplémentaires — ou `null` s'il n'y a rien à dire.
+     *
+     * ⭐⭐⭐ ELLE N'EXISTE QUE SI LE CLASSEUR PORTE AUTRE CHOSE QUE NOM ET
+     *    DESCRIPTION. Un fichier d'hier garde donc exactement l'aspect d'hier :
+     *    la nouveauté ne coûte rien à qui ne s'en sert pas.
+     *
+     * ⚠️ « Montré » n'est pas un repli mais un ENGAGEMENT : une demande du client
+     *    que le script ne sait pas poser doit se VOIR, sinon elle est perdue sans
+     *    trace — et personne ne saura qu'il fallait la poser à la main.
+     */
+    function rendreComplements(doc, valeurs, nbColonnes) {
+        const poses = Object.keys(valeurs.aPoser).filter(c => c !== 'name' && c !== 'description');
+        if (!poses.length && !valeurs.montres.length && !valeurs.refus.length) return null;
+
+        const tr = doc.createElement('tr');
+        tr.className = 'peu-row-plus';
+        const td = doc.createElement('td');
+        td.colSpan = nbColonnes;
+        const zone = doc.createElement('div');
+        zone.className = 'peu-plus';
+
+        /* ⚠️ Un libellé long déborde la pastille et chasse les suivantes hors de
+           vue : il est raccourci ICI, et le complet reste en infobulle. */
+        const pastille = (classe, titre, texte) => {
+            const el = doc.createElement('span');
+            el.className = 'peu-pastille peu-pastille-' + classe;
+            const b = doc.createElement('b');
+            b.textContent = titre.length > 24 ? titre.slice(0, 23) + '…' : titre;
+            if (b.textContent !== titre) el.title = titre;
+            el.appendChild(b);
+            if (texte) el.appendChild(doc.createTextNode(' ' + texte));
+            return el;
+        };
+        const titre = (texte) => {
+            const el = doc.createElement('span');
+            el.className = 'peu-pastille-titre';
+            el.textContent = texte;
+            return el;
+        };
+
+        if (poses.length) {
+            zone.appendChild(titre('✔ appliqué :'));
+            poses.forEach(cible => {
+                zone.appendChild(pastille('pose', libelleDeCible(cible), valeurLisible(valeurs.aPoser[cible])));
+            });
+        }
+        if (valeurs.montres.length) {
+            zone.appendChild(titre('✋ à poser à la main :'));
+            valeurs.montres.forEach(m => {
+                const el = pastille('montre', m.libelle, valeurLisible(m.valeur));
+                if (m.motif) el.title = m.motif;
+                zone.appendChild(el);
+            });
+        }
+        if (valeurs.refus.length) {
+            zone.appendChild(titre('⚠ non reconnu :'));
+            valeurs.refus.forEach(r => {
+                zone.appendChild(pastille('refus', r.libelle, '« ' + r.valeurs.join(' », « ') + ' »'));
+            });
+        }
+
+        td.appendChild(zone);
+        tr.appendChild(td);
+        return tr;
+    }
+    // ==== /banc:apercu ====
 
     function getVenueIdFromPermalink(url) {
         // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique

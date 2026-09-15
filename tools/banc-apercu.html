@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Banc de l'aperçu — WME POI Event Updater</title>
+<!--
+  ⭐ IL MONTE LE VRAI CSS ET LE VRAI RENDU, lus dans le userscript servi : une
+     correction faite ici sans toucher au script ne se verrait pas.
+
+  ⚠️ L'extension refuse les URL file:// — servir le dossier du dépôt :
+        php -S 127.0.0.1:8100 -t .
+     puis ouvrir http://127.0.0.1:8100/tools/banc-apercu.html
+
+  ⚠️ L'OSSATURE EST CELLE DE L'OVERLAY, recopiée : sans .peu-overlay ni
+     .peu-table, les largeurs et les fonds ne valent rien.
+-->
+<style>
+  body { margin: 0; padding: 16px; background: #eef1f6; font-family: 'Segoe UI', Arial, sans-serif; }
+  h1 { font-size: 15px; margin: 0 0 4px; color: #2C6ED5; }
+  p.note { font-size: 12px; color: #666; margin: 0 0 14px; }
+  .cas { margin-bottom: 18px; }
+  .cas > h2 { font-size: 12px; color: #444; margin: 0 0 4px; font-weight: 600; }
+  .peu-overlay-faux { background: #fff; border: 1px solid #c9d4e6; border-radius: 6px; overflow: hidden; }
+</style>
+
+<h1>Aperçu — les champs du lot D2 sous la ligne du lieu</h1>
+<p class="note">
+  Le CSS et la fonction de rendu sont lus dans <code>WME_POI_Event_Updater.user.js</code>.
+</p>
+<div id="sortie"></div>
+
+<script type="module">
+const source = await (await fetch('../WME_POI_Event_Updater.user.js')).text();
+
+/* Le CSS du script, monté tel quel. */
+const dCss = source.indexOf('const CSS = `');
+const fCss = source.indexOf('`;', dCss);
+const style = document.createElement('style');
+style.textContent = source.slice(dCss + 'const CSS = `'.length, fCss);
+document.head.appendChild(style);
+
+/* Les blocs, dans l'ordre d'évaluation. */
+const bloc = (nom) => {
+    const d = source.indexOf(`// ==== banc:${nom} ====`);
+    const f = source.indexOf(`// ==== /banc:${nom} ====`);
+    if (d === -1 || f === -1) throw new Error('bloc introuvable : ' + nom);
+    return source.slice(d, f);
+};
+const { mapChamps, lireValeurs, rendreComplements } = new Function(
+    bloc('champs') + bloc('colonnes') + bloc('apercu') +
+    '\nreturn { mapChamps, lireValeurs, rendreComplements };'
+)();
+
+const CAS = [
+    {
+        titre: 'Un classeur d’hier : nom et description seulement — AUCUNE ligne ajoutée',
+        entetes: ['POI Permalink', 'POI Name', 'POI Description'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P2 - Longue Durée', 'Ouvert 24h/24']
+    },
+    {
+        titre: 'Un parking complet : tout est applicable',
+        entetes: ['POI Permalink', 'POI Name', 'POI Description', 'Parking Type', 'Parking Cost',
+                  'Parking Payment', 'Parking Services', 'Parking Situation', 'Parking Spots',
+                  'Parking Exit When Closed', 'Téléphone'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P5', 'Longue durée',
+                'Public', 'Modéré', 'Espèces ; Carte de crédit',
+                'Surveillance ; Places PMR ; Bornes de charge', 'Extérieur couvert', '101-300',
+                'Oui', '04 90 00 00 00']
+    },
+    {
+        titre: 'Des champs que le script ne sait pas poser — ils se VOIENT',
+        entetes: ['POI Permalink', 'POI Name', 'Horaires', 'Adresse', 'Opérateur de parking', 'Catégories'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P1',
+                'Ouvert 8h-20h sauf le dimanche', '12 avenue de la Gare, Avignon', 'Effia', 'Parking']
+    },
+    {
+        titre: 'Une valeur non reconnue : signalée, le reste passe quand même',
+        entetes: ['POI Permalink', 'POI Name', 'Parking Payment', 'Parking Cost'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P7', 'Espèces ; Bitcoin', 'Pas cher']
+    },
+    {
+        titre: 'Le cas complet : appliqué, à la main, et refusé sur la même ligne',
+        entetes: ['POI Permalink', 'POI Name', 'Parking Cost', 'Horaires', 'Parking Payment', 'Services'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P3', 'Élevé',
+                '7j/7 de 6h à 23h', 'Abonnement ; Jetons', 'Toilettes ; Wi-Fi']
+    }
+];
+
+const sortie = document.getElementById('sortie');
+CAS.forEach(cas => {
+    const bloc = document.createElement('div');
+    bloc.className = 'cas';
+    const h2 = document.createElement('h2');
+    h2.textContent = cas.titre;
+    bloc.appendChild(h2);
+
+    const boite = document.createElement('div');
+    boite.className = 'peu-overlay-faux';
+    const table = document.createElement('table');
+    table.className = 'peu-table';
+    const thead = table.createTHead();
+    const trh = thead.insertRow();
+    ['🔍', 'Nom', 'Description', ''].forEach(txt => {
+        const th = document.createElement('th');
+        th.textContent = txt;
+        trh.appendChild(th);
+    });
+    const tbody = table.createTBody();
+
+    const tr = tbody.insertRow();
+    tr.insertCell().textContent = '📍';
+    const tdNom = tr.insertCell();
+    const inp = document.createElement('input');
+    inp.className = 'peu-input';
+    inp.value = cas.cells[cas.entetes.indexOf('POI Name')] || '';
+    tdNom.appendChild(inp);
+    const tdDesc = tr.insertCell();
+    const ta = document.createElement('textarea');
+    ta.className = 'peu-textarea';
+    const iDesc = cas.entetes.indexOf('POI Description');
+    ta.value = iDesc === -1 ? '' : cas.cells[iDesc];
+    tdDesc.appendChild(ta);
+    const tdCb = tr.insertCell();
+    tdCb.className = 'center';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'peu-checkbox';
+    tdCb.appendChild(cb);
+
+    const valeurs = lireValeurs(cas.cells, mapChamps(cas.entetes, false));
+    const ligne = rendreComplements(document, valeurs, 4);
+    if (ligne) tbody.appendChild(ligne);
+    else {
+        const vide = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.style.cssText = 'padding:4px 30px;font-size:11px;color:#999;font-style:italic;';
+        td.textContent = '(aucune ligne ajoutée — comme avant la 0.50)';
+        vide.appendChild(td);
+        tbody.appendChild(vide);
+    }
+
+    boite.appendChild(table);
+    bloc.appendChild(boite);
+    sortie.appendChild(bloc);
+});
+</script>
+</html>

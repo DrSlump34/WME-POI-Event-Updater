@@ -105,7 +105,7 @@ verifier('« No » vaut faux',
     { 'PARKING_LOT.canExitWhileClosed': false },
     lire(['Parking Exit When Closed'], ['No']).aPoser);
 verifier('« Peut-être » est refusé, pas interprété',
-    [{ libelle: 'Sortie possible quand le parking est fermé', valeurs: ['Peut-être'] }],
+    [{ libelle: 'Sortie quand fermé', valeurs: ['Peut-être'] }],
     lire(['Parking Exit When Closed'], ['Peut-être']).refus);
 
 /* ------------------------------------------------------------------ *
