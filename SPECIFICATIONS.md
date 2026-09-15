@@ -9,9 +9,10 @@
 
 ## 0. À qui s'adresse ce dossier
 
-Dossier de reprise du projet. Le script fait **1 529 lignes** et n'a qu'**un seul banc**
-(`tools/banc-colonnes.mjs`, la lecture des colonnes) : pour tout le reste, ce document et les
-commentaires du code sont la seule mémoire de ses choix.
+Dossier de reprise du projet. Le script fait **1 529 lignes** et n'a que **deux bancs**
+(`tools/`, la lecture des colonnes et le chargement d'un classeur) : pour tout le reste — et
+notamment tout ce qui touche la carte — ce document et les commentaires du code sont la seule
+mémoire de ses choix.
 
 | Document | Rôle |
 |---|---|
@@ -285,9 +286,9 @@ l'objet entier serait reconstruit à chaque appel.
 
 ## 11. Ce qui reste ouvert et fragile
 
-- **Presque aucun harnais de test.** `tools/banc-colonnes.mjs` (0.49) tient la lecture des
-  colonnes ; **tout le reste** — préchargement, aperçu, application, rapport — ne se vérifie que
-  dans WME.
+- **Presque aucun harnais de test.** Deux bancs (0.49) : `tools/banc-colonnes.mjs` tient la règle
+  des colonnes, `tools/banc-chargement.mjs` rejoue le chargement d’un vrai classeur hors WME.
+  **Tout le reste** — préchargement, aperçu, application, rapport — ne se vérifie que dans WME.
 - **L'attache à `W.model` et à `require('Waze/Action/UpdateObject')`** n'est pas du SDK : c'est le
   point qui cassera en premier lors d'une évolution de WME. Une migration vers
   `sdk.DataModel.Venues` serait le chantier naturel, et devrait conserver la sémantique du § 4.2.
@@ -304,6 +305,7 @@ l'objet entier serait reconstruit à chaque appel.
 |---|---|
 | `WME_POI_Event_Updater_Template.xlsx` | Gabarit vierge — **la référence du format** |
 | `tools/banc-colonnes.mjs` | Banc de la lecture des colonnes — `node tools/banc-colonnes.mjs` |
+| `tools/banc-chargement.mjs` | Banc du chargement d’un classeur — rejoue le code du script (SheetJS à fournir) |
 | `Capture 0.*.png` | Captures par version, publiées avec les annonces |
 | `Descr. HTML GreasyFork 0.23.txt` | Description publiée |
 | `Archives/` | Anciennes versions (ignoré par git) |
