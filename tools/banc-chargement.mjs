@@ -23,10 +23,9 @@
 
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
+import { source, bloc } from './extraire.mjs';
 
-const racine = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [classeur, sheetjs = './xlsx.full.min.js'] = process.argv.slice(2);
 
 if (!classeur) {
@@ -44,12 +43,10 @@ try {
     process.exit(2);
 }
 
-const source = readFileSync(join(racine, 'WME_POI_Event_Updater.user.js'), 'utf8');
 
 /* Les deux fonctions dont le corps du chargement a besoin, extraites du script. */
-const D = '// ==== banc:colonnes ====', F = '// ==== /banc:colonnes ====';
 const { mapColumns } = new Function(
-    source.slice(source.indexOf(D) + D.length, source.indexOf(F)) + '\nreturn { mapColumns };'
+    bloc('champs') + bloc('colonnes') + '\nreturn { mapColumns };'
 )();
 
 const debutVid = source.indexOf('function getVenueIdFromPermalink(url) {');

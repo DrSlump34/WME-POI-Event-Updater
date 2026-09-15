@@ -15,26 +15,9 @@
  * documentation. Le jour où WME en change, ce banc doit échouer — c'est son rôle.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { charger } from './extraire.mjs';
 
-const racine = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(racine, 'WME_POI_Event_Updater.user.js'), 'utf8');
-
-function bloc(nom) {
-    const d = source.indexOf(`// ==== banc:${nom} ====`);
-    const f = source.indexOf(`// ==== /banc:${nom} ====`);
-    if (d === -1 || f === -1) {
-        console.error(`✖ Bloc « banc:${nom} » introuvable dans le userscript.`);
-        process.exit(1);
-    }
-    return source.slice(d, f);
-}
-
-const { cleWme, clesWme, VALEURS_WME } = new Function(
-    bloc('colonnes') + bloc('champs') + '\nreturn { cleWme, clesWme, VALEURS_WME };'
-)();
+const { cleWme, clesWme, VALEURS_WME } = charger(['champs', 'colonnes'], ['cleWme', 'clesWme', 'VALEURS_WME']);
 
 let reussis = 0;
 const echecs = [];

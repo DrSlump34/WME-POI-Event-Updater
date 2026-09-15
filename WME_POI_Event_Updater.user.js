@@ -372,50 +372,6 @@
         document.head.appendChild(style);
     }
 
-    // ==== banc:colonnes ====
-    // Ce bloc est extrait tel quel par tools/banc-colonnes.mjs : il ne doit
-    // dépendre de rien d'autre (ni DOM, ni XLSX, ni t()).
-
-    /* Les libellés reconnus pour chaque colonne, en minuscules et sans accents.
-       Le premier de chaque liste est celui du gabarit officiel et du classeur
-       tenu à la main ; les suivants couvrent une saisie en français.
-       ⚠️ AUCUN LIBELLÉ GÉNÉRIQUE ICI — ni « lien », ni « url » : le jour où le
-          fichier portera le site web d'un lieu, sa colonne s'appellerait ainsi,
-          et elle serait lue comme le permalien. */
-    const COLONNES_ATTENDUES = {
-        perm: ['poi permalink', 'permalink', 'permalien', 'poi permalien'],
-        name: ['poi name', 'name', 'nom', 'poi nom', 'nom du poi'],
-        desc: ['poi description', 'description', 'desc', 'poi desc']
-    };
-
-    function normalizeHeader(valeur) {
-        return String(valeur === undefined || valeur === null ? '' : valeur)
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase().replace(/\s+/g, ' ').trim();
-    }
-
-    /* Quelle colonne porte quoi, d'après la ligne d'en-tête.
-       Tout ou rien : les trois en-têtes reconnues, ou repli sur les positions
-       A/B/C — la règle se dit en une phrase, et un repli partiel attribuerait
-       une colonne au hasard. Le repli exige, comme avant, trois en-têtes non
-       vides : un onglet sans en-tête reste ignoré. */
-    function mapColumns(entetes) {
-        const ligne = Array.isArray(entetes) ? entetes : [];
-        const parNom = {};
-        Object.keys(COLONNES_ATTENDUES).forEach(cle => {
-            const idx = ligne.findIndex(e => COLONNES_ATTENDUES[cle].indexOf(normalizeHeader(e)) !== -1);
-            if (idx !== -1) parNom[cle] = idx;
-        });
-
-        if (parNom.perm !== undefined && parNom.name !== undefined && parNom.desc !== undefined) {
-            return { columns: parNom, byPosition: false, usable: true };
-        }
-
-        const troisEnTetes = [0, 1, 2].every(i => normalizeHeader(ligne[i]) !== '');
-        return { columns: { perm: 0, name: 1, desc: 2 }, byPosition: true, usable: troisEnTetes };
-    }
-    // ==== /banc:colonnes ====
-
     // ==== banc:champs ====
     // Extrait tel quel par tools/banc-champs.mjs : aucune dépendance (ni DOM, ni SDK).
 
@@ -547,6 +503,11 @@
        ⚠️ « Montré » est un engagement, pas un repli : une demande du client qui
           n'apparaîtrait nulle part serait perdue sans trace. */
     const CHAMPS = [
+        /* Le permalien n'est pas une valeur à poser : c'est lui qui DÉSIGNE le
+           lieu. Il figure ici pour que les libellés des colonnes aient une seule
+           source, et `pose: false` sans motif le distingue des champs montrés. */
+        { cle: 'perm',        entetes: ['poi permalink', 'permalink', 'permalien', 'poi permalien'],
+          pose: false,        identifie: true, libelle: 'Permalien' },
         { cle: 'name',        entetes: ['poi name', 'name', 'nom', 'poi nom', 'nom du poi'],
           cible: 'name',      pose: true,  libelle: 'Nom' },
         { cle: 'desc',        entetes: ['poi description', 'description', 'desc', 'poi desc'],
@@ -602,6 +563,78 @@
         return CHAMPS.filter(c => c.pose && c.cible === cible);
     }
     // ==== /banc:champs ====
+
+    // ==== banc:colonnes ====
+    // Ce bloc est extrait par tools/banc-colonnes.mjs, AVEC celui des champs :
+    // les libellés des colonnes en dérivent. Ni DOM, ni XLSX, ni t().
+
+    /* ⭐ LES LIBELLÉS NE SONT PAS RÉÉCRITS ICI : ils DÉRIVENT de `CHAMPS`, seule
+       source. Deux listes des mêmes en-têtes divergeraient le jour où l'une
+       s'enrichit — et la colonne cesserait d'être reconnue d'un côté seulement.
+       ⚠️ AUCUN LIBELLÉ GÉNÉRIQUE dans `CHAMPS` pour le permalien — ni « lien »,
+          ni « url » : le fichier porte aussi le site web d'un lieu, dont la
+          colonne s'appellerait ainsi, et elle serait lue comme le permalien. */
+    const COLONNES_ATTENDUES = {
+        perm: libellesDe('perm'),
+        name: libellesDe('name'),
+        desc: libellesDe('desc')
+    };
+
+    function libellesDe(cle) {
+        const champ = CHAMPS.find(c => c.cle === cle);
+        return champ ? champ.entetes : [];
+    }
+
+    function normalizeHeader(valeur) {
+        return String(valeur === undefined || valeur === null ? '' : valeur)
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    /* Quelle colonne porte quoi, d'après la ligne d'en-tête.
+       Tout ou rien : les trois en-têtes reconnues, ou repli sur les positions
+       A/B/C — la règle se dit en une phrase, et un repli partiel attribuerait
+       une colonne au hasard. Le repli exige, comme avant, trois en-têtes non
+       vides : un onglet sans en-tête reste ignoré. */
+    function mapColumns(entetes) {
+        const ligne = Array.isArray(entetes) ? entetes : [];
+        const parNom = {};
+        Object.keys(COLONNES_ATTENDUES).forEach(cle => {
+            const idx = ligne.findIndex(e => COLONNES_ATTENDUES[cle].indexOf(normalizeHeader(e)) !== -1);
+            if (idx !== -1) parNom[cle] = idx;
+        });
+
+        if (parNom.perm !== undefined && parNom.name !== undefined && parNom.desc !== undefined) {
+            return { columns: parNom, byPosition: false, usable: true };
+        }
+
+        const troisEnTetes = [0, 1, 2].every(i => normalizeHeader(ligne[i]) !== '');
+        return { columns: { perm: 0, name: 1, desc: 2 }, byPosition: true, usable: troisEnTetes };
+    }
+
+    /**
+     * Toutes les colonnes reconnues, au-delà des trois de base : clé du champ →
+     * index de colonne.
+     *
+     * ⚠️ UNE COLONNE INCONNUE N'EST PAS UNE ERREUR — le fichier peut porter les
+     *    repères de son auteur (une référence interne, une couleur). Elle est
+     *    simplement absente du résultat.
+     * ⚠️ En REPLI (en-têtes non reconnues), on ne repère rien de plus : les
+     *    positions A/B/C sont un contrat d'un autre âge, y ajouter des colonnes
+     *    devinées reviendrait à inventer.
+     */
+    function mapChamps(entetes, byPosition) {
+        const trouves = {};
+        if (byPosition) return trouves;
+        const ligne = Array.isArray(entetes) ? entetes : [];
+        CHAMPS.forEach(champ => {
+            const idx = ligne.findIndex(e => champ.entetes.indexOf(normalizeHeader(e)) !== -1);
+            if (idx !== -1) trouves[champ.cle] = idx;
+        });
+        return trouves;
+    }
+    // ==== /banc:colonnes ====
+
 
     function getVenueIdFromPermalink(url) {
         // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique
