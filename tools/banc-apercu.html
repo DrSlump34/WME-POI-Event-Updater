@@ -127,8 +127,8 @@ CAS.forEach(cas => {
     tdCb.appendChild(cb);
 
     const valeurs = lireValeurs(cas.cells, mapChamps(cas.entetes, false));
-    const ligne = rendreComplements(document, valeurs, 4);
-    if (ligne) tbody.appendChild(ligne);
+    const complements = rendreComplements(document, valeurs, (cle) => ({ plusApplique: '✔ appliqué :', plusMain: '✋ à poser à la main :', plusRefus: '⚠ non reconnu :' }[cle] || cle));
+    if (complements) tdDesc.appendChild(complements);
     else {
         const vide = document.createElement('tr');
         const td = document.createElement('td');

@@ -79,6 +79,7 @@
                 btnExport:'📥 Exporter le rapport',
                 sheetHeaderErr:'En-têtes de colonnes absentes ou non reconnues — onglet ignoré',
                 sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
+                plusApplique:'✔ appliqué :', plusMain:'✋ à poser à la main :', plusRefus:'⚠ non reconnu :',
                 urlInvalid:'URL invalide',
                 urlBadHost:'URL non reconnue (doit être waze.com ou beta.waze.com/…/editor)',
                 urlNoEnv:'paramètre env= manquant', urlBadLat:'lat= absent ou invalide',
@@ -129,6 +130,7 @@
                 btnExport:'📥 Export report',
                 sheetHeaderErr:'Column headers missing or unrecognised — sheet ignored',
                 sheetHeaderFallback:'headers not recognised: columns read by position (A = permalink, B = name, C = description)',
+                plusApplique:'✔ applied:', plusMain:'✋ to set by hand:', plusRefus:'⚠ not recognised:',
                 urlInvalid:'Invalid URL',
                 urlBadHost:'Unrecognised URL (must be waze.com or beta.waze.com/…/editor)',
                 urlNoEnv:'missing env= parameter', urlBadLat:'lat= missing or invalid',
@@ -305,11 +307,10 @@
            ⭐ Cette ligne n'existe QUE si le classeur porte autre chose que le nom
               et la description : un fichier d'hier garde exactement l'aspect
               d'hier. */
-        .peu-table tr.peu-row-plus > td {
-            border-top: none; padding: 0 6px 6px 30px;
-            font-size: 11px; line-height: 1.5; color: #555;
+        .peu-plus {
+            display: flex; flex-wrap: wrap; gap: 3px 5px; align-items: baseline;
+            margin-top: 4px; font-size: 10.5px; line-height: 1.5; color: #555;
         }
-        .peu-plus { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
         .peu-pastille {
             border-radius: 3px; padding: 1px 6px; white-space: nowrap;
             border: 1px solid transparent;
@@ -726,6 +727,79 @@
     // ==== /banc:colonnes ====
 
 
+    // ==== banc:pose ====
+    // Logique pure de l'écriture : ce qu'on envoie, et ce qu'on vérifie après.
+    // L'appel au SDK, lui, tient en trois lignes dans runApply.
+
+    /* Ce que l'ANCIEN mécanisme écrit déjà (`UpdateObject`, depuis la 0.1) :
+       on n'y touche pas. Le reste passe par le SDK.
+       ⚠️ Deux mécanismes cohabitent donc, et c'est délibéré : le nom et la
+          description sont le cœur du script, éprouvé sur le terrain depuis des
+          mois. Les migrer « tant qu'on y est » aurait mis en jeu ce qui marche
+          pour gagner une élégance que personne ne verrait. */
+    const CIBLES_HERITEES = ['name', 'description', 'aliases'];
+
+    /**
+     * L'objet à passer à `updateVenue`, et ce qui a été écarté.
+     *
+     * ⚠️⚠️ LA LISTE BLANCHE N'EST PAS UNE PRÉCAUTION DE STYLE. Le SDK accepte SANS
+     *    ERREUR un nom de champ qu'il ne connaît pas : il ne pose rien, ne dit
+     *    rien, et marque quand même le lieu comme modifié. Un objet construit
+     *    dynamiquement à partir du classeur ouvrirait donc la porte à une
+     *    modification vide, impossible à voir autrement qu'en relisant le lieu.
+     */
+    function construireMaj(aPoser) {
+        const autorisees = CHAMPS.filter(c => c.pose).map(c => c.cible);
+        const maj = {};
+        const parking = {};
+        const ignores = [];
+
+        Object.keys(aPoser).forEach(cible => {
+            if (CIBLES_HERITEES.includes(cible)) return;          // écrit ailleurs
+            if (!autorisees.includes(cible)) { ignores.push(cible); return; }
+            const point = cible.indexOf('.');
+            if (point === -1) { maj[cible] = aPoser[cible]; return; }
+            const [categorie, champ] = [cible.slice(0, point), cible.slice(point + 1)];
+            if (categorie !== 'PARKING_LOT') { ignores.push(cible); return; }
+            parking[champ] = aPoser[cible];
+        });
+
+        if (Object.keys(parking).length) maj.categoryAttributes = { PARKING_LOT: parking };
+        return { maj, ignores };
+    }
+
+    /**
+     * Ce que le lieu porte VRAIMENT après écriture, comparé à ce qu'on demandait.
+     *
+     * ⭐⭐⭐⭐ C'EST LE SEUL CONTRÔLE QUI NE MENTE PAS. Le SDK ne signale ni un champ
+     *    inconnu, ni une valeur hors énumération : sans relecture, « appliqué »
+     *    ne veut dire que « l'appel n'a pas levé d'exception ».
+     *
+     * @param attributs les attributs du lieu RELUS après l'écriture
+     */
+    function verifierPose(attributs, aPoser) {
+        const confirmes = [], manques = [];
+        const memeValeur = (a, b) => {
+            if (Array.isArray(a) || Array.isArray(b)) {
+                const x = (a || []).slice().sort(), y = (b || []).slice().sort();
+                return x.length === y.length && x.every((v, i) => v === y[i]);
+            }
+            return a === b;
+        };
+
+        Object.keys(aPoser).forEach(cible => {
+            if (CIBLES_HERITEES.includes(cible)) return;
+            const point = cible.indexOf('.');
+            const lu = point === -1
+                ? attributs[cible]
+                : ((attributs.categoryAttributes || {})[cible.slice(0, point)] || {})[cible.slice(point + 1)];
+            (memeValeur(lu, aPoser[cible]) ? confirmes : manques).push(cible);
+        });
+
+        return { confirmes, manques };
+    }
+    // ==== /banc:pose ====
+
     // ==== banc:apercu ====
     // Rendu pur : il ne touche qu'au document qu'on lui donne, pour être
     // éprouvable hors de WME (tools/banc-apercu.html).
@@ -782,14 +856,16 @@
      *    que le script ne sait pas poser doit se VOIR, sinon elle est perdue sans
      *    trace — et personne ne saura qu'il fallait la poser à la main.
      */
-    function rendreComplements(doc, valeurs, nbColonnes) {
+    function rendreComplements(doc, valeurs, traduire) {
         const poses = Object.keys(valeurs.aPoser).filter(c => c !== 'name' && c !== 'description');
         if (!poses.length && !valeurs.montres.length && !valeurs.refus.length) return null;
 
-        const tr = doc.createElement('tr');
-        tr.className = 'peu-row-plus';
-        const td = doc.createElement('td');
-        td.colSpan = nbColonnes;
+        /* ⚠️⚠️ CE BLOC VIT DANS LA LIGNE DU LIEU, PAS DANS UNE LIGNE À PART.
+           Deux raisons, et la première suffit : le tableau se TRIE par colonne —
+           une ligne supplémentaire serait détachée de son lieu au premier clic
+           sur un en-tête, et l'on lirait les champs d'un parking sous le nom
+           d'un autre. La seconde : sept boucles parcourent `tbody` en supposant
+           que chaque ligne porte ses champs de saisie. */
         const zone = doc.createElement('div');
         zone.className = 'peu-plus';
 
@@ -813,13 +889,13 @@
         };
 
         if (poses.length) {
-            zone.appendChild(titre('✔ appliqué :'));
+            zone.appendChild(titre(traduire('plusApplique')));
             poses.forEach(cible => {
                 zone.appendChild(pastille('pose', libelleDeCible(cible), valeurLisible(valeurs.aPoser[cible])));
             });
         }
         if (valeurs.montres.length) {
-            zone.appendChild(titre('✋ à poser à la main :'));
+            zone.appendChild(titre(traduire('plusMain')));
             valeurs.montres.forEach(m => {
                 const el = pastille('montre', m.libelle, valeurLisible(m.valeur));
                 if (m.motif) el.title = m.motif;
@@ -827,17 +903,28 @@
             });
         }
         if (valeurs.refus.length) {
-            zone.appendChild(titre('⚠ non reconnu :'));
+            zone.appendChild(titre(traduire('plusRefus')));
             valeurs.refus.forEach(r => {
                 zone.appendChild(pastille('refus', r.libelle, '« ' + r.valeurs.join(' », « ') + ' »'));
             });
         }
 
-        td.appendChild(zone);
-        tr.appendChild(td);
-        return tr;
+        return zone;
     }
     // ==== /banc:apercu ====
+
+    /* Le SDK, obtenu une seule fois. `@grant none` : il vient de la page.
+       ⚠️ S'il manque (version de WME plus ancienne), les champs du lot D2 ne se
+          posent pas — et cela DOIT se voir dans le rapport, pas se taire. */
+    let _sdk = null;
+    function obtenirSdk() {
+        if (_sdk) return _sdk;
+        if (typeof window.getWmeSdk !== 'function') {
+            throw new Error('SDK de WME indisponible');
+        }
+        _sdk = window.getWmeSdk({ scriptId: 'poi-event-updater', scriptName: 'WME POI Event Updater' });
+        return _sdk;
+    }
 
     function getVenueIdFromPermalink(url) {
         // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique
@@ -1210,6 +1297,7 @@
                         // feuille ne commence pas en A1 : sans cela, l'anomalie renvoie
                         // à une ligne que personne ne retrouve.
                         const premiere = (XLSX.utils.decode_range(sh['!ref'] || 'A1:C1').s.r || 0) + 1;
+                        const champsIdx = mapChamps(rows[0], plan.byPosition);
                         const sheetPerms = new Map();
                         rows.slice(1).forEach((cells, idx) => {
                             const rowNum = premiere + 1 + idx;
@@ -1288,7 +1376,8 @@
                             }
                             sheetPerms.set(vid, rowNum);
 
-                            all.push({event:sheet, perm:r.perm, name:r.name, desc:r.desc});
+                            all.push({event:sheet, perm:r.perm, name:r.name, desc:r.desc,
+                                      valeurs: lireValeurs(cells, champsIdx)});
                         });
                     });
 
@@ -1658,6 +1747,12 @@
             txtArea.addEventListener('input', () => { tr.dataset.newDesc = txtArea.value; updateDiff(); applyFilters(); });
             tdDesc.appendChild(txtArea);
 
+            /* Les champs du lot D2, s il y en a : dans LA MEME cellule, pour survivre au tri. */
+            if (p.valeurs) {
+                const complements = rendreComplements(document, p.valeurs, t);
+                if (complements) tdDesc.appendChild(complements);
+            }
+
             // ── Colonne case à cocher ──
             const tdCB = tr.insertCell(); tdCB.className = 'center';
             const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'peu-checkbox';
@@ -1666,7 +1761,7 @@
             cb.addEventListener('change', () => { tr._cbUserSet = true; updateMasterCb(); });
             tdCB.appendChild(cb);
 
-            tr._inputs = {vid, inpName, txtArea, cb};
+            tr._inputs = {vid, inpName, txtArea, cb, valeurs: p.valeurs};
 
             // Initialiser l'indicateur diff au chargement
             updateDiff();
@@ -1863,16 +1958,45 @@
                     if (venue) {
                         const oldName = venue.attributes.name || '';
                         const oldDesc = venue.attributes.description || '';
+                        /* ⚠️ Les noms alternatifs viennent du classeur s'il en porte,
+                           sinon on REPASSE ceux du lieu tels quels — règle d'origine
+                           du script : ne jamais les perdre au passage. */
+                        const aPoser = (item.valeurs && item.valeurs.aPoser) || {};
                         W.model.actionManager.add(new UpdateObject(venue, {
                             id: venue.attributes.id,
                             name: inpName.value,
                             description: txtArea.value,
-                            aliases: venue.attributes.aliases || []
+                            aliases: aPoser.aliases || venue.attributes.aliases || []
                         }));
+
+                        /* ── Les champs du lot D2, par le SDK ──
+                           ⚠️⚠️ ON RELIT APRÈS AVOIR ÉCRIT, ET C'EST OBLIGATOIRE : le SDK
+                              n'élève aucune erreur devant un champ qu'il ne connaît pas
+                              ni devant une valeur hors énumération. Sans cette relecture,
+                              « appliqué » ne voudrait dire que « l'appel n'a pas planté ». */
+                        let poseSdk = null;
+                        const { maj, ignores } = construireMaj(aPoser);
+                        if (Object.keys(maj).length) {
+                            try {
+                                const sdk = obtenirSdk();
+                                sdk.DataModel.Venues.updateVenue({ venueId: vid, ...maj });
+                                const relu = W.model.venues.getObjectById(vid);
+                                poseSdk = verifierPose(relu ? relu.attributes : {}, aPoser);
+                            } catch (e) {
+                                poseSdk = { confirmes: [], manques: Object.keys(maj), erreur: e.message };
+                            }
+                        }
+                        if (ignores.length) {
+                            poseSdk = poseSdk || { confirmes: [], manques: [] };
+                            poseSdk.manques = poseSdk.manques.concat(ignores);
+                        }
+
                         allResults.push({
                             oldName, newName: inpName.value,
                             oldDesc, newDesc: txtArea.value,
-                            status: 'applied'
+                            status: poseSdk && poseSdk.manques.length ? 'partial' : 'applied',
+                            poses: poseSdk ? poseSdk.confirmes : [],
+                            manques: poseSdk ? poseSdk.manques : []
                         });
                     } else {
                         failed.push(item);
