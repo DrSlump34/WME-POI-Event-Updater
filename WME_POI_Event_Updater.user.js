@@ -562,6 +562,80 @@
     function champsParCible(cible) {
         return CHAMPS.filter(c => c.pose && c.cible === cible);
     }
+
+    /**
+     * Ce qu'une ligne du classeur demande, trié en trois tas.
+     *
+     * ⭐⭐⭐⭐ UNE CELLULE VIDE NE DEMANDE RIEN, ET N'EFFACE RIEN. C'est la règle la
+     *    plus importante de cette fonction : dans un classeur, une case laissée
+     *    blanche veut dire « je n'ai pas de consigne », jamais « efface ce qui
+     *    est sur la carte ». Sans elle, exporter un parc où le client n'a
+     *    renseigné que les noms viderait tous les autres champs de WME.
+     *
+     * ⚠️⚠️ DEUX COLONNES VISENT `services` — celles du lieu et celles du parking.
+     *    Comme un tableau REMPLACE tout son contenu dans WME, il faut envoyer
+     *    leur UNION : poser l'une sans l'autre effacerait l'autre.
+     *
+     * @return {{aPoser: Object, montres: Array, refus: Array}}
+     */
+    function lireValeurs(cells, idxParChamp) {
+        const aPoser = {}, montres = [], refus = [];
+        const listesParCible = {};
+
+        const cellule = (i) => {
+            const v = cells[i];
+            return v === undefined || v === null ? '' : String(v).trim();
+        };
+
+        CHAMPS.forEach(champ => {
+            const idx = idxParChamp[champ.cle];
+            if (idx === undefined || champ.identifie) return;
+            const brute = cellule(idx);
+            if (brute === '') return;               // rien demandé : on ne touche pas
+
+            if (!champ.pose) {
+                montres.push({ cle: champ.cle, libelle: champ.libelle, valeur: brute, motif: champ.motif });
+                return;
+            }
+
+            if (champ.booleen) {
+                const b = booleenWme(brute);
+                if (b === null) refus.push({ libelle: champ.libelle, valeurs: [brute] });
+                else aPoser[champ.cible] = b;
+                return;
+            }
+
+            if (champ.referentiel) {
+                if (champ.multiple) {
+                    const { retenues, refusees } = clesWme(champ.referentiel, brute);
+                    if (refusees.length) refus.push({ libelle: champ.libelle, valeurs: refusees });
+                    if (retenues.length) {
+                        (listesParCible[champ.cible] ||= []).push(...retenues);
+                    }
+                } else {
+                    const cle = cleWme(champ.referentiel, brute);
+                    if (cle === null) refus.push({ libelle: champ.libelle, valeurs: [brute] });
+                    else aPoser[champ.cible] = cle;
+                }
+                return;
+            }
+
+            if (champ.multiple) {
+                const morceaux = brute.split(/\r?\n|;/).map(m => m.trim()).filter(Boolean);
+                if (morceaux.length) (listesParCible[champ.cible] ||= []).push(...morceaux);
+                return;
+            }
+
+            aPoser[champ.cible] = brute;
+        });
+
+        /* L'union des colonnes qui visent la même liste, doublons retirés. */
+        Object.keys(listesParCible).forEach(cible => {
+            aPoser[cible] = listesParCible[cible].filter((v, i, t) => t.indexOf(v) === i);
+        });
+
+        return { aPoser, montres, refus };
+    }
     // ==== /banc:champs ====
 
     // ==== banc:colonnes ====
