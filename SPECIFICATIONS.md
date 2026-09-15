@@ -118,6 +118,17 @@ dont la plage ne commence pas en A1 ne renvoie plus à une ligne introuvable.
 rejouée hors WME sur `ACO Events.xlsx` (**342 lignes, 6 onglets**) et sur le gabarit : lignes et
 numéros de ligne **identiques** à ceux de 0.48.
 
+✅ **Et éprouvé DANS WME le 15/09/2026**, sur un classeur d'essai à sept onglets : « 35 POI
+chargés — 6 ⚠️ », les **six anomalies au mot près**, le sélecteur limité aux **cinq** onglets
+exploitables (`Config` et l'onglet sans en-têtes absents), l'onglet aux colonnes permutées avec
+deux colonnes en plus rendant ses **8 POI** et l'aperçu « ✅ À jour » — celui que 0.48 laissait
+vide. Rien n'a été appliqué ; « Enregistrer » est resté grisé.
+
+⚠️⚠️ **VU AU PASSAGE, ET CE N'EST PAS UNE RÉGRESSION** : une ligne au **nom vide** est gardée avec
+un simple avertissement — et elle arrive dans l'aperçu **cochée**, donc un clic sur ✓ **viderait le
+nom du lieu**. Comportement de 0.48, mais c'est le seul cas où l'aperçu propose par défaut une
+perte de donnée. À trancher un jour : la garder décochée, ou la refuser.
+
 ### 3.1 Le permalink, et ce qu'on en tire
 
 `getVenueIdFromPermalink(url)` lit `venues=` : l'identifiant peut être **numérique (ancien) ou un
