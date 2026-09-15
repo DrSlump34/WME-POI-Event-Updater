@@ -529,6 +529,78 @@
             });
         return { retenues, refusees };
     }
+    /* Un booléen écrit en toutes lettres, dans les deux langues. */
+    function booleenWme(saisie) {
+        const v = normalizeHeader(saisie);
+        if (v === '') return null;
+        if (['oui', 'yes', 'true', '1', 'x'].includes(v)) return true;
+        if (['non', 'no', 'false', '0'].includes(v)) return false;
+        return null;
+    }
+
+    /* LES COLONNES DU CLASSEUR.
+       `pose: true` — WPEU l'écrit dans WME.
+       `pose: false` — WPEU l'AFFICHE seulement : la valeur demande une
+       interprétation qu'aucun script ne peut faire sans se tromper en silence
+       (horaires en toutes lettres, rue à retrouver dans le modèle, points sur la
+       carte), ou sa liste de valeurs n'a pas été relevée.
+       ⚠️ « Montré » est un engagement, pas un repli : une demande du client qui
+          n'apparaîtrait nulle part serait perdue sans trace. */
+    const CHAMPS = [
+        { cle: 'name',        entetes: ['poi name', 'name', 'nom', 'poi nom', 'nom du poi'],
+          cible: 'name',      pose: true,  libelle: 'Nom' },
+        { cle: 'desc',        entetes: ['poi description', 'description', 'desc', 'poi desc'],
+          cible: 'description', pose: true, libelle: 'Description' },
+        { cle: 'aliases',     entetes: ['alternative names', 'alternate names', 'noms alternatifs', 'nom alternatif'],
+          cible: 'aliases',   pose: true,  multiple: true, libelle: 'Noms alternatifs' },
+        { cle: 'phone',       entetes: ['phone', 'telephone', 'téléphone'],
+          cible: 'phone',     pose: true,  libelle: 'Téléphone' },
+        { cle: 'url',         entetes: ['website', 'site web', 'site'],
+          cible: 'url',       pose: true,  libelle: 'Site web' },
+        { cle: 'services',    entetes: ['services', 'services du lieu'],
+          cible: 'services',  pose: true,  multiple: true, referentiel: 'services', libelle: 'Services' },
+
+        { cle: 'parkingType', entetes: ['parking type', 'type de parking'],
+          cible: 'PARKING_LOT.parkingType', pose: true, referentiel: 'parkingType', libelle: 'Type de parking' },
+        { cle: 'hasTBR',      entetes: ['parking type varies', 'type variable'],
+          cible: 'PARKING_LOT.hasTBR', pose: true, booleen: true, libelle: 'Le type varie selon l’heure ou le jour' },
+        { cle: 'costType',    entetes: ['parking cost', 'tarif', 'tarif du parking'],
+          cible: 'PARKING_LOT.costType', pose: true, referentiel: 'costType', libelle: 'Tarif' },
+        { cle: 'paymentType', entetes: ['parking payment', 'modes de paiement', 'paiements'],
+          cible: 'PARKING_LOT.paymentType', pose: true, multiple: true, referentiel: 'paymentType', libelle: 'Modes de paiement' },
+        { cle: 'parkingServices', entetes: ['parking services', 'services du parking'],
+          cible: 'services',  pose: true,  multiple: true, referentiel: 'parkingServices', libelle: 'Services du parking' },
+        { cle: 'lotType',     entetes: ['parking situation', 'situation'],
+          cible: 'PARKING_LOT.lotType', pose: true, multiple: true, referentiel: 'lotType', libelle: 'Situation' },
+        { cle: 'spots',       entetes: ['parking spots', 'nombre de places', 'places'],
+          cible: 'PARKING_LOT.estimatedNumberOfSpots', pose: true, referentiel: 'estimatedNumberOfSpots', libelle: 'Nombre de places' },
+        { cle: 'canExit',     entetes: ['parking exit when closed', 'sortie parking ferme', 'sortie parking fermé'],
+          cible: 'PARKING_LOT.canExitWhileClosed', pose: true, booleen: true, libelle: 'Sortie possible quand le parking est fermé' },
+
+        /* ---- Montrés seulement ---- */
+        { cle: 'categories',  entetes: ['categories', 'catégories', 'category', 'catégorie'],
+          pose: false, multiple: true, libelle: 'Catégories',
+          motif: 'la catégorie commande tous les autres champs du lieu, et sa liste n’a pas été relevée' },
+        { cle: 'hours',       entetes: ['opening hours', 'horaires'],
+          pose: false, libelle: 'Horaires', motif: 'WME attend des créneaux, pas une phrase' },
+        { cle: 'address',     entetes: ['address', 'adresse'],
+          pose: false, libelle: 'Adresse', motif: 'WME attend un numéro et une rue de son propre modèle' },
+        { cle: 'entryPoints', entetes: ['entry points', 'points d’entree', "points d'entree", 'points d’entrée', "points d'entrée"],
+          pose: false, libelle: 'Points d’entrée', motif: 'ce sont des points sur la carte, pas du texte' },
+        { cle: 'operator',    entetes: ['parking operator', 'operateur de parking', 'opérateur de parking', 'opérateur'],
+          pose: false, libelle: 'Opérateur de parking', motif: 'liste fermée chez WME — exclu, décision du 15/09/2026' },
+        { cle: 'googleName',  entetes: ['google name', 'nom google'],
+          pose: false, libelle: 'Nom Google', motif: 'ne relève pas de WME' },
+        { cle: 'googleCategory', entetes: ['google category', 'catégorie google', 'categorie google'],
+          pose: false, libelle: 'Catégorie Google', motif: 'ne relève pas de WME' },
+        { cle: 'googlePosition', entetes: ['google position', 'position google', 'position'],
+          pose: false, libelle: 'Position Google', motif: 'ne relève pas de WME' }
+    ];
+
+    /** Les champs qui visent le MÊME attribut de WME, pour les fusionner. */
+    function champsParCible(cible) {
+        return CHAMPS.filter(c => c.pose && c.cible === cible);
+    }
     // ==== /banc:champs ====
 
     function getVenueIdFromPermalink(url) {
