@@ -25,6 +25,11 @@ A blank template is provided: **[`WME_POI_Event_Updater_Template.xlsx`](WME_POI_
 | `POI Name` | Name to set |
 | `POI Description` | Description to set |
 
+Columns are matched **by header name**, not by position (case, spacing and accents are ignored;
+French headers `Permalien` / `Nom` / `Description` are accepted too). You may therefore reorder
+them or add columns of your own — extra columns are ignored. If none of the three headers is
+recognised, the script falls back to reading columns A, B and C as before, and says so.
+
 ## Installation
 
 1. Install a userscript manager — [Tampermonkey](https://www.tampermonkey.net/) is recommended.

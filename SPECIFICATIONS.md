@@ -1,6 +1,6 @@
 # PEU — WME POI Event Updater · Dossier de spécifications
 
-> **Version du code décrite ici : 0.48** (lue dans le bloc `==UserScript==` de
+> **Version du code décrite ici : 0.49** (lue dans le bloc `==UserScript==` de
 > `WME_POI_Event_Updater.user.js`).
 > Diffusé sur **GreasyFork 578776**, dépôt `github.com/DrSlump34/WME-POI-Event-Updater`,
 > fil Discuss **404593**.
@@ -9,8 +9,9 @@
 
 ## 0. À qui s'adresse ce dossier
 
-Dossier de reprise du projet. Le script fait **1 465 lignes** et n'a **aucun harnais de test** :
-ce document et les commentaires du code sont la seule mémoire de ses choix.
+Dossier de reprise du projet. Le script fait **1 529 lignes** et n'a qu'**un seul banc**
+(`tools/banc-colonnes.mjs`, la lecture des colonnes) : pour tout le reste, ce document et les
+commentaires du code sont la seule mémoire de ses choix.
 
 | Document | Rôle |
 |---|---|
@@ -83,6 +84,38 @@ et l'éditeur enregistre ensuite. Deux exigences en découlent :
 Lecture par **SheetJS (`xlsx` 0.18.5)**, chargé par `@require`. ⚠️ **Deux `@require` pointent la
 même bibliothèque** — cdnjs **puis** jsDelivr : c'est un **repli** volontaire, si un CDN est
 inaccessible l'autre sert.
+
+### 3.0 Les colonnes se lisent par leur EN-TÊTE — 0.49
+
+Jusqu'en 0.48, les colonnes étaient lues **par position** (`header:['perm','name','desc']`,
+`range:1`) : les trois en-têtes devaient seulement exister et n'être pas vides, leur libellé
+n'était jamais lu. L'ordre des colonnes était donc un **contrat tacite**, et une colonne insérée à
+gauche décalait tout **en silence**.
+
+`mapColumns(entetes)` repère désormais chaque colonne par son libellé (casse, espaces — insécable
+compris — et accents ignorés) :
+
+| Colonne | Libellés reconnus |
+|---|---|
+| permalien | `POI Permalink`, `Permalink`, `Permalien`, `POI Permalien` |
+| nom | `POI Name`, `Name`, `Nom`, `POI Nom`, `Nom du POI` |
+| description | `POI Description`, `Description`, `Desc`, `POI Desc` |
+
+⭐ **Tout ou rien.** Les trois en-têtes reconnues → lecture par nom ; sinon **repli sur A/B/C**,
+comme en 0.48, et une anomalie le dit (`sheetHeaderFallback`). Un repli partiel attribuerait une
+colonne au hasard ; la règle, elle, se dit en une phrase. Un onglet dont les trois premières
+en-têtes sont vides reste **ignoré**, comme avant.
+
+⇒ Les colonnes peuvent être **réordonnées**, et des colonnes **supplémentaires sont ignorées** :
+c'est ce qui ouvre l'enrichissement du format (lot D2 de l'extranet EVIDRA).
+
+⚠️ **Le numéro de ligne des anomalies est celui du tableur**, calculé depuis `!ref` : une feuille
+dont la plage ne commence pas en A1 ne renvoie plus à une ligne introuvable.
+
+✅ **Éprouvé** : `node tools/banc-colonnes.mjs` — 19 cas, **7 mutations sur 7 mordent**. Le banc
+**extrait le bloc du userscript lui-même**, il n'en garde pas de copie. Et la lecture réelle a été
+rejouée hors WME sur `ACO Events.xlsx` (**342 lignes, 6 onglets**) et sur le gabarit : lignes et
+numéros de ligne **identiques** à ceux de 0.48.
 
 ### 3.1 Le permalink, et ce qu'on en tire
 
@@ -252,12 +285,16 @@ l'objet entier serait reconstruit à chaque appel.
 
 ## 11. Ce qui reste ouvert et fragile
 
-- **Aucun harnais de test.** Toutes les vérifications se font dans WME.
+- **Presque aucun harnais de test.** `tools/banc-colonnes.mjs` (0.49) tient la lecture des
+  colonnes ; **tout le reste** — préchargement, aperçu, application, rapport — ne se vérifie que
+  dans WME.
 - **L'attache à `W.model` et à `require('Waze/Action/UpdateObject')`** n'est pas du SDK : c'est le
   point qui cassera en premier lors d'une évolution de WME. Une migration vers
   `sdk.DataModel.Venues` serait le chantier naturel, et devrait conserver la sémantique du § 4.2.
-- **Le format du fichier n'est pas versionné** : le gabarit `.xlsx` est la seule référence. Ajouter
-  une colonne demanderait de décider ce que fait le script devant un ancien fichier.
+- **Le format du fichier n'est pas versionné** : le gabarit `.xlsx` est la seule référence. Depuis
+  0.49 (§ 3.0), une colonne **ajoutée** est ignorée par les versions qui ne la connaissent pas, et
+  l'ordre n'est plus un contrat — mais **rien ne dit à l'utilisateur qu'une colonne est ignorée
+  faute d'être comprise** : un fichier plus riche que le script reste muet.
 - **Le rapport ne distingue pas `ok` / `sae` / `hard`** : `getLockStatus` est calculé et affiché à
   l'écran, mais le statut du rapport se limite à `applied` / `timeout`.
 
@@ -266,6 +303,7 @@ l'objet entier serait reconstruit à chaque appel.
 | Fichier | Contenu |
 |---|---|
 | `WME_POI_Event_Updater_Template.xlsx` | Gabarit vierge — **la référence du format** |
+| `tools/banc-colonnes.mjs` | Banc de la lecture des colonnes — `node tools/banc-colonnes.mjs` |
 | `Capture 0.*.png` | Captures par version, publiées avec les annonces |
 | `Descr. HTML GreasyFork 0.23.txt` | Description publiée |
 | `Archives/` | Anciennes versions (ignoré par git) |

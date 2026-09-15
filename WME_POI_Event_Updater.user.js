@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.48
+// @version      0.49
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -77,7 +77,8 @@
                 btnRetry:(n)=>`🔄 Réessayer (${n} POI)`,
                 successMsg:(n)=>`✔ ${n} POI appliqués avec succès`,
                 btnExport:'📥 Exporter le rapport',
-                sheetHeaderErr:'En-têtes manquants en A1/B1/C1 — onglet ignoré',
+                sheetHeaderErr:'En-têtes de colonnes absentes ou non reconnues — onglet ignoré',
+                sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
                 urlInvalid:'URL invalide',
                 urlBadHost:'URL non reconnue (doit être waze.com ou beta.waze.com/…/editor)',
                 urlNoEnv:'paramètre env= manquant', urlBadLat:'lat= absent ou invalide',
@@ -126,7 +127,8 @@
                 btnRetry:(n)=>`🔄 Retry (${n} POI${n>1?'s':''})`,
                 successMsg:(n)=>`✔ ${n} POI${n>1?'s':''} applied successfully`,
                 btnExport:'📥 Export report',
-                sheetHeaderErr:'Missing headers in A1/B1/C1 — sheet ignored',
+                sheetHeaderErr:'Column headers missing or unrecognised — sheet ignored',
+                sheetHeaderFallback:'headers not recognised: columns read by position (A = permalink, B = name, C = description)',
                 urlInvalid:'Invalid URL',
                 urlBadHost:'Unrecognised URL (must be waze.com or beta.waze.com/…/editor)',
                 urlNoEnv:'missing env= parameter', urlBadLat:'lat= missing or invalid',
@@ -369,6 +371,50 @@
         style.textContent = CSS;
         document.head.appendChild(style);
     }
+
+    // ==== banc:colonnes ====
+    // Ce bloc est extrait tel quel par tools/banc-colonnes.mjs : il ne doit
+    // dépendre de rien d'autre (ni DOM, ni XLSX, ni t()).
+
+    /* Les libellés reconnus pour chaque colonne, en minuscules et sans accents.
+       Le premier de chaque liste est celui du gabarit officiel et du classeur
+       tenu à la main ; les suivants couvrent une saisie en français.
+       ⚠️ AUCUN LIBELLÉ GÉNÉRIQUE ICI — ni « lien », ni « url » : le jour où le
+          fichier portera le site web d'un lieu, sa colonne s'appellerait ainsi,
+          et elle serait lue comme le permalien. */
+    const COLONNES_ATTENDUES = {
+        perm: ['poi permalink', 'permalink', 'permalien', 'poi permalien'],
+        name: ['poi name', 'name', 'nom', 'poi nom', 'nom du poi'],
+        desc: ['poi description', 'description', 'desc', 'poi desc']
+    };
+
+    function normalizeHeader(valeur) {
+        return String(valeur === undefined || valeur === null ? '' : valeur)
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    /* Quelle colonne porte quoi, d'après la ligne d'en-tête.
+       Tout ou rien : les trois en-têtes reconnues, ou repli sur les positions
+       A/B/C — la règle se dit en une phrase, et un repli partiel attribuerait
+       une colonne au hasard. Le repli exige, comme avant, trois en-têtes non
+       vides : un onglet sans en-tête reste ignoré. */
+    function mapColumns(entetes) {
+        const ligne = Array.isArray(entetes) ? entetes : [];
+        const parNom = {};
+        Object.keys(COLONNES_ATTENDUES).forEach(cle => {
+            const idx = ligne.findIndex(e => COLONNES_ATTENDUES[cle].indexOf(normalizeHeader(e)) !== -1);
+            if (idx !== -1) parNom[cle] = idx;
+        });
+
+        if (parNom.perm !== undefined && parNom.name !== undefined && parNom.desc !== undefined) {
+            return { columns: parNom, byPosition: false, usable: true };
+        }
+
+        const troisEnTetes = [0, 1, 2].every(i => normalizeHeader(ligne[i]) !== '');
+        return { columns: { perm: 0, name: 1, desc: 2 }, byPosition: true, usable: troisEnTetes };
+    }
+    // ==== /banc:colonnes ====
 
     function getVenueIdFromPermalink(url) {
         // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique
@@ -727,14 +773,32 @@
 
                     wb.SheetNames.filter(n => n !== 'Config').forEach(sheet => {
                         const sh = wb.Sheets[sheet];
-                        if (!sh['A1']?.v || !sh['B1']?.v || !sh['C1']?.v) {
+                        // Les colonnes se lisent par leur EN-TÊTE, avec repli sur les
+                        // positions A/B/C : l'ordre des colonnes cesse d'être un contrat
+                        // tacite, et une colonne ajoutée à droite ne décale plus rien.
+                        const rows = XLSX.utils.sheet_to_json(sh, {header:1, defval:''});
+                        const plan = mapColumns(rows[0]);
+                        if (!plan.usable) {
                             warnings.push(`[${sheet}] ${t('sheetHeaderErr')}`);
                             return;
                         }
-                        const rows = XLSX.utils.sheet_to_json(sh, {header:['perm','name','desc'], range:1, defval:''});
+                        if (plan.byPosition) warnings.push(`[${sheet}] ${t('sheetHeaderFallback')}`);
+                        // Le numéro de ligne affiché est celui du tableur, même si la
+                        // feuille ne commence pas en A1 : sans cela, l'anomalie renvoie
+                        // à une ligne que personne ne retrouve.
+                        const premiere = (XLSX.utils.decode_range(sh['!ref'] || 'A1:C1').s.r || 0) + 1;
                         const sheetPerms = new Map();
-                        rows.forEach((r, idx) => {
-                            const rowNum = idx + 2; // +2 car range:1 saute la ligne 1
+                        rows.slice(1).forEach((cells, idx) => {
+                            const rowNum = premiere + 1 + idx;
+                            const valeur = (i) => {
+                                const v = cells[i];
+                                return v === undefined || v === null ? '' : v;
+                            };
+                            const r = {
+                                perm: String(valeur(plan.columns.perm)).trim(),
+                                name: valeur(plan.columns.name),
+                                desc: valeur(plan.columns.desc)
+                            };
                             if (!r.perm) return; // ligne vide ignorée silencieusement
 
                             // 1. URL syntaxiquement valide ?
