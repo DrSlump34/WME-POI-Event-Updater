@@ -416,6 +416,121 @@
     }
     // ==== /banc:colonnes ====
 
+    // ==== banc:champs ====
+    // Extrait tel quel par tools/banc-champs.mjs : aucune dépendance (ni DOM, ni SDK).
+
+    /* LES VALEURS DE WME, RELEVÉES DANS L'ÉDITEUR LE 15/09/2026 — jamais écrites
+       de mémoire. Chaque entrée associe la clé que WME attend aux libellés qui
+       peuvent arriver dans le classeur.
+
+       ⚠️⚠️ LA CONVERSION EST LE GARDE-FOU, PAS UNE COMMODITÉ. Le SDK accepte SANS
+          ERREUR une valeur hors énumération et la POSE telle quelle : envoyer
+          « gratuit » au lieu de « FREE » ne provoque aucun refus, marque le lieu
+          modifié, et fait enregistrer une valeur que WME ne reconnaît pas.
+
+       ⚠️ Les libellés français sont ceux de l'éditeur, et ce sont aussi ceux que
+          l'extranet EVIDRA imprime dans son export — la conversion par libellé est
+          donc le chemin normal, la clé WME n'étant qu'un raccourci pour qui la
+          connaît. */
+    const VALEURS_WME = {
+        parkingType: {
+            PUBLIC: ['public'], PRIVATE: ['privé', 'prive'], RESTRICTED: ['restreint']
+        },
+        costType: {
+            FREE: ['gratuit'], LOW: ['faible'], MODERATE: ['modéré', 'modere'],
+            EXPENSIVE: ['élevé', 'eleve']
+        },
+        estimatedNumberOfSpots: {
+            R_1_TO_10: ['1-10'], R_11_TO_30: ['11-30'], R_31_TO_60: ['31-60'],
+            R_61_TO_100: ['61-100'], R_101_TO_300: ['101-300'], R_301_TO_600: ['301-600'],
+            R_600_PLUS: ['> 600', '>600', 'plus-600']
+        },
+        lotType: {
+            MULTI_LEVEL: ['plusieurs niveaux'], STREET_LEVEL: ['extérieur', 'exterieur'],
+            STREET_LEVEL_COVERED: ['extérieur couvert', 'exterieur couvert'],
+            UNDERGROUND: ['souterrain']
+        },
+        paymentType: {
+            CASH: ['espèces', 'especes'], CHECKS: ['chèques', 'cheques'],
+            CREDIT: ['carte de crédit', 'carte de credit'],
+            DEBIT_CARD: ['carte bancaire'],
+            DIGITAL_WALLET: ['portefeuille numérique', 'portefeuille numerique'],
+            ELECTRONIC_PASS: ['pass électronique', 'pass electronique'],
+            MEMBERSHIP: ['abonnement'], PARKING_APP: ['application'],
+            PERMIT: ['laissez-passer'], PREPAID: ['prépaiement', 'prepaiement'],
+            SMS_CALL: ['sms/appel', 'sms appel']
+        },
+        /* ⚠️⚠️ « services » EST LE MÊME CHAMP POUR UN LIEU ET POUR UN PARKING :
+              c'est la CATÉGORIE du lieu qui décide des valeurs proposées. D'où deux
+              tables, et une clé qui ne désigne pas la même chose dans les deux —
+              « Voiturier » vaut VALET sur un parking, « Service de voiturier »
+              vaut VALLET_SERVICE partout. Une table unique poserait l'un pour
+              l'autre, sans erreur visible.
+           📌 « VALLET » est la graphie de Waze, faute de frappe comprise : on la
+              recopie, on ne la corrige pas. */
+        services: {
+            AIR_CONDITIONING: ['climatisation'],
+            CREDIT_CARDS: ['accepte les cartes de crédit', 'accepte les cartes de credit'],
+            CURBSIDE_PICKUP: ['click & collect', 'click and collect'],
+            DELIVERIES: ['livraisons'], DRIVETHROUGH: ['drive'],
+            OUTSIDE_SEATING: ['terrasse extérieure', 'terrasse exterieure'],
+            PARKING_FOR_CUSTOMERS: ['parking client'], RESERVATIONS: ['réservations', 'reservations'],
+            RESTROOMS: ['toilettes'], TAKE_AWAY: ['à emporter', 'a emporter'],
+            VALLET_SERVICE: ['service de voiturier'],
+            WHEELCHAIR_ACCESSIBLE: ['accessible en fauteuil roulant'], WI_FI: ['wi-fi', 'wifi']
+        },
+        parkingServices: {
+            AIRPORT_SHUTTLE: ['navette aéroport', 'navette aeroport'],
+            CARPOOL_PARKING: ['places covoiturage'], CAR_WASH: ['lavage auto'],
+            COVERED: ['couvert'], DISABILITY_PARKING: ['places pmr'],
+            ON_SITE_ATTENDANT: ['agent d’accueil', "agent d'accueil"],
+            PARK_AND_RIDE: ['p+r'], RESERVATIONS: ['réservations', 'reservations'],
+            SECURITY: ['surveillance'], VALET: ['voiturier'],
+            VALLET_SERVICE: ['service de voiturier'],
+            EV_CHARGING_STATION: ['bornes de charge']
+        }
+    };
+
+    /**
+     * La clé WME d'une valeur lue dans le classeur, ou `null` si elle n'est pas
+     * reconnue — ce qui doit TOUJOURS se signaler, jamais se taire.
+     */
+    function cleWme(referentiel, saisie) {
+        const table = VALEURS_WME[referentiel];
+        if (!table) return null;
+        const v = normalizeHeader(saisie);
+        if (v === '') return null;
+        /* La clé de WME est reconnue par la boucle elle-même (« CREDIT » se
+           normalise en « credit ») : pas de test séparé, il serait mort. */
+        for (const cle of Object.keys(table)) {
+            if (normalizeHeader(cle) === v) return cle;
+            if (table[cle].some(lib => normalizeHeader(lib) === v)) return cle;
+        }
+        return null;
+    }
+
+    /**
+     * Une cellule qui porte plusieurs valeurs : une par ligne, ou séparées par
+     * « ; » — c'est ce que produit l'export de l'extranet.
+     *
+     * ⚠️ Rend les clés RETENUES et les valeurs REFUSÉES : un appelant qui ignore
+     *    les secondes construit une panne silencieuse.
+     */
+    function clesWme(referentiel, cellule) {
+        const retenues = [], refusees = [];
+        String(cellule === undefined || cellule === null ? '' : cellule)
+            .split(/\r?\n|;/)
+            .map(m => m.trim())
+            .filter(Boolean)
+            .forEach(morceau => {
+                const cle = cleWme(referentiel, morceau);
+                if (cle === null) refusees.push(morceau);
+                else if (!retenues.includes(cle)) retenues.push(cle);
+            });
+        return { retenues, refusees };
+    }
+    // ==== /banc:champs ====
+
     function getVenueIdFromPermalink(url) {
         // venues= peut contenir un ID numérique (ancien) ou un GUID alphanumérique
         // (nouveau), éventuellement plusieurs séparés par des virgules → on prend le 1er.
