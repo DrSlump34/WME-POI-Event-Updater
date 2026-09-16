@@ -45,8 +45,8 @@ try {
 
 
 /* Les deux fonctions dont le corps du chargement a besoin, extraites du script. */
-const { mapColumns } = new Function(
-    bloc('champs') + bloc('colonnes') + '\nreturn { mapColumns };'
+const { mapColumns, mapChamps, lireValeurs } = new Function(
+    bloc('champs') + bloc('colonnes') + '\nreturn { mapColumns, mapChamps, lireValeurs };'
 )();
 
 const debutVid = source.indexOf('function getVenueIdFromPermalink(url) {');
@@ -63,7 +63,7 @@ if (debut === -1 || fin === -1 || fin < debut) {
 }
 
 const charger = new Function(
-    'XLSX', 'ev', 't', 'getVenueIdFromPermalink', 'mapColumns',
+    'XLSX', 'ev', 't', 'getVenueIdFromPermalink', 'mapColumns', 'mapChamps', 'lireValeurs',
     source.slice(debut, fin) + '\nreturn { all, warnings };'
 );
 
@@ -76,7 +76,9 @@ const { all, warnings } = charger(
     { target: { result: new Uint8Array(readFileSync(classeur)).buffer } },
     t,
     getVenueIdFromPermalink,
-    mapColumns
+    mapColumns,
+    mapChamps,
+    lireValeurs
 );
 
 const parOnglet = new Map();
@@ -89,6 +91,30 @@ console.log(`  ${'TOTAL'.padEnd(20)} ${all.length}`);
 
 console.log(`\nANOMALIES : ${warnings.length}`);
 warnings.forEach(w => console.log(`  · ${w}`));
+
+/* Ce que chaque ligne DEMANDE, quand le classeur porte plus que nom et description.
+   ⭐ C'est la seule façon de voir, hors WME, ce que l'aperçu affichera — et de
+      vérifier qu'une valeur inconnue est bien refusée plutôt que posée. */
+const avecChamps = all.filter(p => p.valeurs && (
+    Object.keys(p.valeurs.aPoser).some(c => c !== 'name' && c !== 'description') ||
+    p.valeurs.montres.length || p.valeurs.refus.length));
+
+if (avecChamps.length) {
+    console.log(`\nCHAMPS DU LOT D2 — ${avecChamps.length} ligne(s) sur ${all.length} :`);
+    avecChamps.forEach(p => {
+        const poses = Object.entries(p.valeurs.aPoser)
+            .filter(([c]) => c !== 'name' && c !== 'description')
+            .map(([c, v]) => `${c.replace('PARKING_LOT.', '')}=${Array.isArray(v) ? v.join('+') : v}`);
+        console.log(`\n  [${p.event}] ${p.name}`);
+        if (poses.length) console.log(`     à poser  : ${poses.join('  ')}`);
+        if (p.valeurs.montres.length) {
+            console.log(`     à la main: ${p.valeurs.montres.map(m => m.libelle).join(', ')}`);
+        }
+        if (p.valeurs.refus.length) {
+            console.log(`     REFUSÉ   : ${p.valeurs.refus.map(r => r.libelle + ' « ' + r.valeurs.join(', ') + ' »').join(' | ')}`);
+        }
+    });
+}
 
 if (all.length === 0) {
     console.log('\n✖ Aucun POI : le script afficherait « Aucun POI valide chargé ».');
