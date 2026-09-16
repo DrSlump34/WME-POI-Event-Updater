@@ -30,6 +30,31 @@ French headers `Permalien` / `Nom` / `Description` are accepted too). You may th
 them or add columns of your own — extra columns are ignored. If none of the three headers is
 recognised, the script falls back to reading columns A, B and C as before, and says so.
 
+### More fields (0.50)
+
+Beyond name and description, the file may carry these columns. **A blank cell asks for nothing and
+erases nothing.**
+
+| Column | Contents |
+| --- | --- |
+| `Categories` | Place categories — as shown in *your* editor's language |
+| `Alternative Names` · `Phone` · `Website` | as in WME |
+| `Services` | Place services (Wi-Fi, Restrooms…) |
+| `Parking Type` · `Parking Cost` · `Parking Spots` | Public/Private/Restricted · Free…Expensive · 1-10…>600 |
+| `Parking Payment` · `Parking Services` · `Parking Situation` | several values, separated by `;` |
+| `Parking Exit When Closed` · `Parking Type Varies` | `Yes` / `No` |
+
+Values are accepted **as WME's own labels** (in your language) or as its internal keys. **Anything
+else is rejected and shown**, never silently applied.
+
+Some columns are **read and displayed, but never written**: `Opening Hours`, `Address`,
+`Entry Points`, `Parking Operator` and the Google fields. Writing them would mean guessing — a
+misread opening-hours sentence would land on the map with nothing to signal it. They appear in the
+preview so you can set them by hand.
+
+⚠️ **A list replaces the whole field in WME.** If a row lists fewer values than the place already
+has, the preview shows it in **orange**, says what it **removes**, and leaves the row **unticked**.
+
 ## Installation
 
 1. Install a userscript manager — [Tampermonkey](https://www.tampermonkey.net/) is recommended.
