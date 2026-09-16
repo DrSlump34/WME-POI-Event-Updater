@@ -596,7 +596,7 @@
         { cle: 'entryPoints', entetes: ['entry points', 'points d’entree', "points d'entree", 'points d’entrée', "points d'entrée"],
           pose: false, libelle: 'Points d’entrée', motif: 'ce sont des points sur la carte, pas du texte' },
         { cle: 'operator',    entetes: ['parking operator', 'operateur de parking', 'opérateur de parking', 'opérateur'],
-          pose: false, libelle: 'Opérateur de parking', motif: 'liste fermée chez WME — exclu, décision du 15/09/2026' },
+          pose: false, libelle: 'Opérateur de parking', motif: 'liste fermée chez WME, dont les clés ne sont pas relevées' },
         { cle: 'googleName',  entetes: ['google name', 'nom google'],
           pose: false, libelle: 'Nom Google', motif: 'ne relève pas de WME' },
         { cle: 'googleCategory', entetes: ['google category', 'catégorie google', 'categorie google'],
@@ -825,9 +825,9 @@
      *
      * ⭐⭐⭐⭐ POSER N'EST PAS TOUJOURS AJOUTER. Dans WME, un tableau REMPLACE tout
      *    son contenu : un classeur qui demande « Espèces » sur un parking qui
-     *    porte « Carte de crédit, Espèces » **supprime la carte de crédit**. Vu
-     *    sur un cas réel le 16/09, et né d'une cause banale — une valeur refusée
-     *    (« Bitcoin ») avait réduit la liste demandée.
+     *    porte « Carte de crédit, Espèces » **supprime la carte de crédit**. La
+     *    cause est banale : une valeur refusée réduit la liste demandée, et rien
+     *    ne dit que le reste partira avec elle.
      *
      * ⇒ Une ligne qui RETIRE quelque chose ne se coche pas d'office, et sa
      *   pastille ne se peint pas en vert : le vert dit « j'ajoute », et l'œil ne
@@ -867,6 +867,46 @@
         });
 
         return { identiques, differents };
+    }
+
+    /**
+     * COMBIEN DE CHAMPS DU LOT D2 DIFFÈRENT DE CE QUE PORTE LE LIEU.
+     *
+     * ⚠️ `name` et `description` SONT EXCLUS : ils ont leur propre comparaison,
+     *    celle des deux colonnes de l'aperçu, et les compter deux fois ferait
+     *    paraître une différence là où l'écran en montre déjà une.
+     *
+     * ⚠️⚠️ UN LIEU NON CHARGÉ NE SE COMPARE À RIEN. On compte alors TOUS les
+     *    champs à poser, plutôt que de conclure « rien à faire » d'une absence
+     *    de mesure — une absence de signal n'est pas un signal d'absence.
+     */
+    function champsQuiDifferent(attributsDuLieu, aPoser) {
+        if (!aPoser) return 0;
+        const cibles = attributsDuLieu
+            ? comparerAuLieu(attributsDuLieu, aPoser).differents
+            : Object.keys(aPoser);
+
+        return cibles.filter(c => c !== 'name' && c !== 'description').length;
+    }
+
+    /**
+     * CETTE LIGNE SE COCHE-T-ELLE D'OFFICE ?
+     *
+     * ⭐⭐⭐⭐ DEUX DÉFAUTS TROUVÉS DANS L'ÉDITEUR VIVENT ICI, et aucun banc ne
+     *    pouvait les voir tant que la règle habitait le DOM :
+     *      · l'aperçu annonçait « Aucune modification » sur un parking qui avait
+     *        quatre champs à poser — l'indicateur ne regardait que le nom et la
+     *        description ;
+     *      · une ligne qui RETIRE quelque chose était cochée par défaut : une
+     *        liste réduite à « Espèces » aurait supprimé « Carte de crédit » d'un
+     *        parking, et le caractère destructeur n'apparaissait qu'au survol.
+     *
+     * ⇒ Proposer une perte demande un geste, jamais un défaut.
+     */
+    function cocherDOffice(nomChange, descriptionChange, champsDifferents, pertes) {
+        const differe = nomChange || descriptionChange || champsDifferents > 0;
+
+        return differe && !pertes;
     }
     // ==== /banc:pose ====
 
@@ -1751,12 +1791,7 @@
             const attributsDuLieu = venueLoaded ? venue.attributes : null;
             const pertesDuLieu = p.valeurs && attributsDuLieu
                 ? Object.keys(pertesDeLaPose(attributsDuLieu, p.valeurs.aPoser)).length : 0;
-            const champsDiff = p.valeurs
-                ? (attributsDuLieu
-                    ? comparerAuLieu(attributsDuLieu, p.valeurs.aPoser).differents
-                        .filter(c => c !== 'name' && c !== 'description').length
-                    : Object.keys(p.valeurs.aPoser).filter(c => c !== 'name' && c !== 'description').length)
-                : 0;
+            const champsDiff = champsQuiDifferent(attributsDuLieu, p.valeurs && p.valeurs.aPoser);
 
             // Données de tri/filtre stockées sur la ligne (mises à jour si l'utilisateur édite)
             tr.dataset.oldName = oldName;
@@ -1778,11 +1813,9 @@
             function updateDiff() {
                 const nameChanged = tr.dataset.newName !== tr.dataset.oldName;
                 const descChanged = tr.dataset.newDesc !== tr.dataset.oldDesc;
-                /* ⭐⭐⭐⭐ LES CHAMPS DU LOT D2 COMPTENT AUSSI, et c'est un ESSAI DANS
-                   WME qui l'a exigé : l'aperçu annonçait « ✅ Aucune modification »
-                   sur un parking qui avait quatre champs à poser. On ferme la
-                   fenêtre en confiance, et rien n'est appliqué. Aucun banc ne
-                   pouvait le voir — cet indicateur n'existe que dans l'éditeur. */
+                /* ⚠️ LES CHAMPS DU LOT D2 COMPTENT AUSSI : sans eux, l'aperçu
+                   annonce « Aucune modification » sur un lieu qui a des champs à
+                   poser, et l'on ferme la fenêtre en confiance. */
                 const isDiff = nameChanged || descChanged || champsDiff > 0;
                 tr.dataset.hasDiff = isDiff ? 'true' : 'false';
                 // Ne pas écraser hard/sae
@@ -1791,13 +1824,12 @@
                 // Barrer l'ancienne valeur uniquement si elle change réellement
                 if (oldNameEl) oldNameEl.classList.toggle('changed', nameChanged);
                 if (oldDescEl) oldDescEl.classList.toggle('changed', descChanged);
-                /* ⚠️⚠️ UNE LIGNE QUI RETIRE QUELQUE CHOSE NE SE COCHE PAS D'OFFICE.
-                   Le 16/09, un « Bitcoin » refusé réduisait la liste demandée à
-                   « Espèces » : appliquer aurait supprimé « Carte de crédit »
-                   d'un parking, et la ligne était cochée par défaut. Le
-                   caractère destructeur n'apparaissait qu'au survol.
-                   ⇒ Proposer une perte demande un geste, jamais un défaut. */
-                if (!cb.disabled && !tr._cbUserSet) cb.checked = isDiff && !pertesDuLieu;
+                /* ⚠️ LA RÈGLE DU COCHAGE VIT DANS `cocherDOffice`, éprouvée par
+                   `tools/banc-cochage.mjs` : elle n'existait que dans ce DOM, où
+                   rien ne pouvait la mesurer. */
+                if (!cb.disabled && !tr._cbUserSet) {
+                    cb.checked = cocherDOffice(nameChanged, descChanged, champsDiff, pertesDuLieu);
+                }
             }
 
             // ── Colonne 🎯 (recentrage) + indicateurs (diff / non chargé / lock) ──
@@ -2114,10 +2146,10 @@
                         const { maj, ignores } = construireMaj(aPoser);
 
                         /* ⚠️⚠️ UN CHAMP À POSER QUI N'EST JAMAIS ENVOYÉ EST UN MANQUE, PAS UN
-                           SUCCÈS. Le 16/09, la liste à appliquer se construisait sans les
-                           valeurs : `maj` sortait vide, le SDK n'était pas appelé, et
-                           l'écran annonçait « appliqué avec succès » sur un lieu que
-                           personne n'avait touché. Le compte ci-dessous le refuse. */
+                           SUCCÈS. Si la liste à appliquer se construit sans les valeurs,
+                           `maj` sort vide, le SDK n'est pas appelé, et l'écran annonce
+                           « appliqué avec succès » sur un lieu que personne n'a touché.
+                           Le compte ci-dessous le refuse. */
                         const attendus = Object.keys(aPoser).filter(c => !CIBLES_HERITEES.includes(c));
                         if (attendus.length && !Object.keys(maj).length) {
                             poseSdk = { identiques: [], differents: attendus };
