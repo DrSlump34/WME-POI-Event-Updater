@@ -146,7 +146,7 @@ Greenwich) : c'est ce qui rend le script utilisable ailleurs qu'en Europe.
 Au-delà du permalien, du nom et de la description, le classeur peut porter **22
 colonnes**, reconnues par leur en-tête (§ 3.0). **14 sont POSÉES** dans WME, **8
 sont MONTRÉES** sans être posées — horaires, adresse, points d'entrée, opérateur
-de parking, catégories et les champs Google : les poser demanderait d'interpréter
+de parking et les champs Google : les poser demanderait d'interpréter
 une phrase ou de deviner un identifiant, et une interprétation fausse s'écrit sur
 la carte sans que rien ne la signale.
 
@@ -166,6 +166,28 @@ intuition :
 posée dit en infobulle ce qu'elle **remplace**. Vérifié sur un cas réel : un
 classeur demandant « Espèces » sur un parking qui portait « Carte de crédit,
 Espèces » supprime la carte de crédit.
+
+### Les catégories sont POSÉES — et leur référentiel est VIVANT (16/09/2026)
+
+Elles étaient d'abord rangées parmi les champs montrés, faute de référentiel. Le
+relevé dans l'éditeur a levé les deux objections :
+
+* **`sdk.DataModel.Venues.getAllVenueCategories()` rend les 132 catégories déjà
+  TRADUITES dans la langue de l'utilisateur.** Le script ne fige donc aucune
+  copie : `chargerCategories()` remplit la table au premier fichier ouvert. Une
+  copie écrite en dur serait fausse partout ailleurs qu'en français, et périmée
+  au premier ajout de Waze.
+* ⭐⭐ **Les catégories sont le SEUL champ que le SDK valide vraiment** : une
+  valeur inconnue est refusée (« categories[0] must match the configured type »),
+  et un parking ne peut en porter qu'une (« Parking lot and Charging station
+  can't have more than one category »). Partout ailleurs il se tait.
+
+⚠️ **Si le référentiel n'a pas pu être chargé, il reste VIDE et toute catégorie du
+classeur est REFUSÉE — donc signalée.** Poser une catégorie qu'on n'a pas pu
+vérifier serait pire que de ne pas la poser : c'est elle qui commande les champs
+disponibles du lieu.
+⚠️ Retirer une catégorie d'un lieu qui en porte plusieurs est une **perte**, donc
+une pastille orange et une ligne non cochée (voir plus bas).
 
 ⭐ **L'aperçu ne montre en vert que ce qui CHANGE**, et compte le reste (« déjà
 conforme : 3 ») : un classeur portant l'état complet d'un parc affichait sept

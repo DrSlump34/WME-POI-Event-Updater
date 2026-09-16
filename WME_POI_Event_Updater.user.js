@@ -456,6 +456,12 @@
             VALLET_SERVICE: ['Service de voiturier'],
             WHEELCHAIR_ACCESSIBLE: ['Accessible en fauteuil roulant'], WI_FI: ['Wi-Fi', 'wifi']
         },
+        /* ⭐⭐⭐⭐ LES CATÉGORIES NE SONT PAS ÉCRITES ICI : elles sont RELEVÉES DANS
+           L'ÉDITEUR au chargement (`chargerCategories`), parce que WME les rend
+           déjà traduites dans la langue de l'utilisateur — 132 le 16/09/2026.
+           Une copie figée serait fausse dans toute autre langue que le français,
+           et périmerait au premier ajout de Waze. */
+        categories: {},
         parkingServices: {
             AIRPORT_SHUTTLE: ['Navette aéroport'],
             CARPOOL_PARKING: ['Places covoiturage'], CAR_WASH: ['Lavage auto'],
@@ -472,6 +478,26 @@
      * La clé WME d'une valeur lue dans le classeur, ou `null` si elle n'est pas
      * reconnue — ce qui doit TOUJOURS se signaler, jamais se taire.
      */
+    /**
+     * Remplit le référentiel des catégories depuis le SDK.
+     *
+     * ⚠️ S'il échoue, la table reste VIDE et toute catégorie du classeur sera
+     *    REFUSÉE — donc signalée. C'est voulu : poser une catégorie qu'on n'a pas
+     *    pu vérifier serait pire que de ne pas la poser du tout.
+     * ⭐ Le SDK valide les catégories, lui : une valeur inconnue est refusée avec
+     *    une vraie erreur (« categories[0] must match the configured type »), et
+     *    un parking ne peut en porter qu'une seule. C'est le seul champ où il ne
+     *    se tait pas.
+     */
+    function chargerCategories(sdk) {
+        const table = VALEURS_WME.categories;
+        if (Object.keys(table).length) return Object.keys(table).length;
+        (sdk.DataModel.Venues.getAllVenueCategories() || []).forEach(c => {
+            if (c && c.id) table[c.id] = [c.localizedName || c.id];
+        });
+        return Object.keys(table).length;
+    }
+
     function cleWme(referentiel, saisie) {
         const table = VALEURS_WME[referentiel];
         if (!table) return null;
@@ -561,8 +587,8 @@
 
         /* ---- Montrés seulement ---- */
         { cle: 'categories',  entetes: ['categories', 'catégories', 'category', 'catégorie'],
-          pose: false, multiple: true, libelle: 'Catégories',
-          motif: 'la catégorie commande tous les autres champs du lieu, et sa liste n’a pas été relevée' },
+          cible: 'categories', pose: true, multiple: true, referentiel: 'categories',
+          libelle: 'Catégories' },
         { cle: 'hours',       entetes: ['opening hours', 'horaires'],
           pose: false, libelle: 'Horaires', motif: 'WME attend des créneaux, pas une phrase' },
         { cle: 'address',     entetes: ['address', 'adresse'],
@@ -1351,6 +1377,10 @@
             const reader = new FileReader();
             reader.onload = ev => {
                 try {
+                    /* Le référentiel des catégories vient de l'éditeur, dans SA langue.
+                       Un échec laisse la table vide : les catégories seront alors
+                       refusées et signalées, jamais posées à l'aveugle. */
+                    try { chargerCategories(obtenirSdk()); } catch (e) { /* signalé à la ligne */ }
                     const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
                     const all = [];
                     const warnings = [];

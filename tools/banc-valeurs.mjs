@@ -12,8 +12,8 @@
 
 import { charger } from './extraire.mjs';
 
-const { CHAMPS, mapChamps, lireValeurs } =
-    charger(['champs', 'colonnes'], ['CHAMPS', 'mapChamps', 'lireValeurs']);
+const { CHAMPS, mapChamps, lireValeurs, VALEURS_WME } =
+    charger(['champs', 'colonnes'], ['CHAMPS', 'mapChamps', 'lireValeurs', 'VALEURS_WME']);
 
 let reussis = 0;
 const echecs = [];
@@ -130,9 +130,16 @@ verifier('Tout champ posé a une cible', [],
     CHAMPS.filter(c => c.pose && !c.cible).map(c => c.cle));
 verifier('Tout champ montré a un motif', [],
     CHAMPS.filter(c => !c.pose && !c.identifie && !c.motif).map(c => c.cle));
+/* ⚠️ La liste des référentiels était écrite EN DUR ici : elle a divergé au
+   premier ajout (les catégories). On la tire désormais de VALEURS_WME. */
 verifier('Tout référentiel cité existe', [],
-    CHAMPS.filter(c => c.referentiel && !['services', 'parkingServices', 'costType', 'parkingType',
-        'paymentType', 'lotType', 'estimatedNumberOfSpots'].includes(c.referentiel)).map(c => c.cle));
+    CHAMPS.filter(c => c.referentiel && !Object.keys(VALEURS_WME).includes(c.referentiel)).map(c => c.cle));
+
+/* ⚠️ Les catégories sont le seul référentiel VIDE au repos : il se remplit depuis
+   l'éditeur. Tant qu'il est vide, une catégorie doit être REFUSÉE, jamais posée. */
+verifier('Une catégorie est refusée tant que le référentiel n’est pas chargé',
+    [{ libelle: 'Catégories', valeurs: ['Parking'] }],
+    lire(['Catégories'], ['Parking']).refus);
 
 /* ------------------------------------------------------------------ */
 if (echecs.length === 0) {

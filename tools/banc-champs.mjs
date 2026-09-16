@@ -17,7 +17,8 @@
 
 import { charger } from './extraire.mjs';
 
-const { cleWme, clesWme, VALEURS_WME } = charger(['champs', 'colonnes'], ['cleWme', 'clesWme', 'VALEURS_WME']);
+const { cleWme, clesWme, VALEURS_WME, chargerCategories } =
+    charger(['champs', 'colonnes'], ['cleWme', 'clesWme', 'VALEURS_WME', 'chargerCategories']);
 
 let reussis = 0;
 const echecs = [];
@@ -124,6 +125,47 @@ verifier('⭐ UNE VALEUR NON RECONNUE EST RENDUE À PART, jamais tue',
 verifier('Une cellule vide ne rend rien du tout',
     { retenues: [], refusees: [] },
     clesWme('paymentType', ''));
+
+
+/* ------------------------------------------------------------------ *
+ * 6. LES CATÉGORIES — un référentiel VIVANT, relevé dans l’éditeur     *
+ * ------------------------------------------------------------------ */
+/* ⭐ Elles ne sont pas écrites dans le script : WME les rend déjà traduites dans
+   la langue de l’utilisateur (132 le 16/09/2026). Une copie figée serait fausse
+   partout ailleurs qu’en français, et périmerait au premier ajout de Waze. */
+
+verifier('Au repos le référentiel est VIDE', 0, Object.keys(VALEURS_WME.categories).length);
+verifier('⚠️ Et une catégorie est donc REFUSÉE, jamais posée à l’aveugle',
+    null, cleWme('categories', 'Parking'));
+
+const faussSdk = (liste) => ({ DataModel: { Venues: { getAllVenueCategories: () => liste } } });
+verifier('Le chargement remplit le référentiel', 3, chargerCategories(faussSdk([
+    { id: 'PARKING_LOT', localizedName: 'Parking' },
+    { id: 'RESTAURANT', localizedName: 'Restaurant' },
+    { id: 'ZOO_AQUARIUM', localizedName: 'Zoo, aquarium' }
+])));
+verifier('Une catégorie se reconnaît à son libellé', 'PARKING_LOT', cleWme('categories', 'Parking'));
+verifier('…à sa clé WME aussi', 'ZOO_AQUARIUM', cleWme('categories', 'ZOO_AQUARIUM'));
+verifier('…sans se soucier de la casse', 'RESTAURANT', cleWme('categories', 'RESTAURANT'));
+verifier('Une catégorie inconnue reste refusée', null, cleWme('categories', 'Château fort'));
+verifier('Plusieurs catégories, et le refus rendu à part',
+    { retenues: ['PARKING_LOT', 'RESTAURANT'], refusees: ['Château fort'] },
+    clesWme('categories', 'Parking ; Restaurant ; Château fort'));
+
+/* ⭐ Le référentiel ne se recharge pas à chaque fichier : 132 entrées relues à
+   chaque ouverture seraient du travail pour rien, et le SDK peut être lent. */
+let appels = 0;
+const sdkCompteur = { DataModel: { Venues: { getAllVenueCategories: () => { appels++; return [{ id: 'PARKING_LOT', localizedName: 'Parking' }]; } } } };
+Object.keys(VALEURS_WME.categories).forEach(k => delete VALEURS_WME.categories[k]);
+chargerCategories(sdkCompteur);
+chargerCategories(sdkCompteur);
+chargerCategories(sdkCompteur);
+verifier('Trois chargements, un seul appel au SDK', 1, appels);
+
+/* Un SDK muet ne doit rien inventer. */
+Object.keys(VALEURS_WME.categories).forEach(k => delete VALEURS_WME.categories[k]);
+verifier('Un SDK qui ne rend rien laisse le référentiel vide', 0,
+    chargerCategories(faussSdk(null)));
 
 /* ------------------------------------------------------------------ */
 if (echecs.length === 0) {
