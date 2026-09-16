@@ -1,6 +1,6 @@
 # PEU — WME POI Event Updater · Dossier de spécifications
 
-> **Version du code décrite ici : 0.49** (lue dans le bloc `==UserScript==` de
+> **Version du code décrite ici : 0.50** (lue dans le bloc `==UserScript==` de
 > `WME_POI_Event_Updater.user.js`).
 > Diffusé sur **GreasyFork 578776**, dépôt `github.com/DrSlump34/WME-POI-Event-Updater`,
 > fil Discuss **404593**.
@@ -9,10 +9,11 @@
 
 ## 0. À qui s'adresse ce dossier
 
-Dossier de reprise du projet. Le script fait **1 529 lignes** et n'a que **deux bancs**
-(`tools/`, la lecture des colonnes et le chargement d'un classeur) : pour tout le reste — et
-notamment tout ce qui touche la carte — ce document et les commentaires du code sont la seule
-mémoire de ses choix.
+Dossier de reprise du projet. Le script a **cinq bancs** dans `tools/` — la lecture des colonnes,
+la conversion des valeurs, la lecture d'une ligne, l'écriture, et le chargement d'un vrai classeur
+— plus `banc-apercu.html` pour le rendu. ⚠️ **Aucun ne voit la carte** : tout ce qui touche à WME
+ne se vérifie que dans l'éditeur, et les deux défauts les plus graves de la 0.50 y ont été trouvés
+(§ 3.2).
 
 | Document | Rôle |
 |---|---|
@@ -129,7 +130,18 @@ un simple avertissement — et elle arrive dans l'aperçu **cochée**, donc un c
 nom du lieu**. Comportement de 0.48, mais c'est le seul cas où l'aperçu propose par défaut une
 perte de donnée. À trancher un jour : la garder décochée, ou la refuser.
 
-#### 3.2 Les champs du lot D2 — 0.50
+## 3.1 Le permalink, et ce qu'on en tire
+
+`getVenueIdFromPermalink(url)` lit `venues=` : l'identifiant peut être **numérique (ancien) ou un
+GUID alphanumérique (nouveau)**, et il peut y en avoir plusieurs séparés par des virgules —
+**on prend le premier**.
+
+`parseLatLon(url)` lit `lat` / `lon` **en gérant les valeurs négatives** (hémisphère sud, ouest de
+Greenwich) : c'est ce qui rend le script utilisable ailleurs qu'en Europe.
+
+---
+
+### 3.2 Les champs du lot D2 — 0.50
 
 Au-delà du permalien, du nom et de la description, le classeur peut porter **22
 colonnes**, reconnues par leur en-tête (§ 3.0). **14 sont POSÉES** dans WME, **8
@@ -179,17 +191,6 @@ seul — les quatre champs vides retrouvés dans le lieu après écriture
 (`UNKNOWN → FREE`, `[] → CASH`, `[] → STREET_LEVEL`, services `[] → PMR +
 Surveillance`), puis **annulation vérifiée** : lieu identique à l'avant, pile
 d'actions revenue à son étalon. Rien n'a été enregistré.
-
----
-
-## 3.1 Le permalink, et ce qu'on en tire
-
-`getVenueIdFromPermalink(url)` lit `venues=` : l'identifiant peut être **numérique (ancien) ou un
-GUID alphanumérique (nouveau)**, et il peut y en avoir plusieurs séparés par des virgules —
-**on prend le premier**.
-
-`parseLatLon(url)` lit `lat` / `lon` **en gérant les valeurs négatives** (hémisphère sud, ouest de
-Greenwich) : c'est ce qui rend le script utilisable ailleurs qu'en Europe.
 
 ---
 
