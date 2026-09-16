@@ -102,6 +102,15 @@ CAS.push(
     }
 );
 
+/* Le cas vu sur la carte le 16/09 : une valeur refusee reduit la liste, et
+   poser cela RETIRE ce qui n y est plus. */
+CAS.push({
+    titre: '🔴 LA POSE RETIRE UNE VALEUR : pastille orange, et la ligne n est pas cochee d office',
+    entetes: ['POI Permalink', 'POI Name', 'Parking Payment'],
+    cells: ['https://www.waze.com/editor?venues=1', 'Parking P1', 'Espèces ; Bitcoin'],
+    lieu: { categoryAttributes: { PARKING_LOT: { paymentType: ['CREDIT', 'CASH'] } } }
+});
+
 const sortie = document.getElementById('sortie');
 CAS.forEach(cas => {
     const bloc = document.createElement('div');
@@ -146,7 +155,8 @@ CAS.forEach(cas => {
     const valeurs = lireValeurs(cas.cells, mapChamps(cas.entetes, false));
     const traduire = (cle) => ({
         plusApplique: '✔ appliqué :', plusMain: '✋ à poser à la main :',
-        plusRefus: '⚠ non reconnu :', plusConforme: '· déjà conforme :', plusAvant: 'remplace :'
+        plusRefus: '⚠ non reconnu :', plusConforme: '· déjà conforme :', plusAvant: 'remplace :',
+        plusRetire: 'RETIRE'
     }[cle] || cle);
     const complements = rendreComplements(document, valeurs, traduire, cas.lieu);
     if (complements) tdDesc.appendChild(complements);

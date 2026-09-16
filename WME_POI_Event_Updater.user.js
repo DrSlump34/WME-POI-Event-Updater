@@ -80,7 +80,7 @@
                 sheetHeaderErr:'En-têtes de colonnes absentes ou non reconnues — onglet ignoré',
                 sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
                 plusApplique:'✔ appliqué :', plusMain:'✋ à poser à la main :', plusRefus:'⚠ non reconnu :',
-                plusConforme:'· déjà conforme :', plusAvant:'remplace :',
+                plusConforme:'· déjà conforme :', plusAvant:'remplace :', plusRetire:'RETIRE',
                 urlInvalid:'URL invalide',
                 urlBadHost:'URL non reconnue (doit être waze.com ou beta.waze.com/…/editor)',
                 urlNoEnv:'paramètre env= manquant', urlBadLat:'lat= absent ou invalide',
@@ -132,7 +132,7 @@
                 sheetHeaderErr:'Column headers missing or unrecognised — sheet ignored',
                 sheetHeaderFallback:'headers not recognised: columns read by position (A = permalink, B = name, C = description)',
                 plusApplique:'✔ applied:', plusMain:'✋ to set by hand:', plusRefus:'⚠ not recognised:',
-                plusConforme:'· already correct:', plusAvant:'replaces:',
+                plusConforme:'· already correct:', plusAvant:'replaces:', plusRetire:'REMOVES',
                 urlInvalid:'Invalid URL',
                 urlBadHost:'Unrecognised URL (must be waze.com or beta.waze.com/…/editor)',
                 urlNoEnv:'missing env= parameter', urlBadLat:'lat= missing or invalid',
@@ -322,6 +322,8 @@
         /* Le gris dit « à toi de le poser » — ni succès, ni alerte. */
         .peu-pastille-montre { background: #f2f2f2; border-color: #ddd;    color: #555; }
         .peu-pastille-refus  { background: #fdeceb; border-color: #f5c6c2; color: #a3281e; }
+        /* L'orange dit « j'enlève » : ni un succès, ni une erreur — une perte. */
+        .peu-pastille-perte  { background: #fdf3e3; border-color: #f0d3a0; color: #8a5a00; }
         .peu-pastille b { font-weight: 600; }
         .peu-pastille-titre { color: #888; padding: 1px 0; }
         .peu-table tr.peu-row-unloaded { background: #fafafa !important; opacity: 0.6; }
@@ -792,6 +794,37 @@
             : ((attributs.categoryAttributes || {})[cible.slice(0, point)] || {})[cible.slice(point + 1)];
     }
 
+    /**
+     * Ce que la pose FERAIT DISPARAÎTRE du lieu : cible → valeurs perdues.
+     *
+     * ⭐⭐⭐⭐ POSER N'EST PAS TOUJOURS AJOUTER. Dans WME, un tableau REMPLACE tout
+     *    son contenu : un classeur qui demande « Espèces » sur un parking qui
+     *    porte « Carte de crédit, Espèces » **supprime la carte de crédit**. Vu
+     *    sur un cas réel le 16/09, et né d'une cause banale — une valeur refusée
+     *    (« Bitcoin ») avait réduit la liste demandée.
+     *
+     * ⇒ Une ligne qui RETIRE quelque chose ne se coche pas d'office, et sa
+     *   pastille ne se peint pas en vert : le vert dit « j'ajoute », et l'œil ne
+     *   lit pas une infobulle qu'il ne soupçonne pas.
+     *
+     * ⚠️ Seules les LISTES peuvent perdre. Un champ simple qu'on remplace est un
+     *    changement voulu, et une cellule vide ne pose rien (elle n'efface donc
+     *    jamais) — la règle est ailleurs, dans `lireValeurs`.
+     */
+    function pertesDeLaPose(attributs, aPoser) {
+        const pertes = {};
+        if (!attributs) return pertes;
+        Object.keys(aPoser).forEach(cible => {
+            const voulu = aPoser[cible];
+            if (!Array.isArray(voulu)) return;
+            const actuel = valeurDuLieu(attributs, cible);
+            if (!Array.isArray(actuel)) return;
+            const disparus = actuel.filter(v => voulu.indexOf(v) === -1);
+            if (disparus.length) pertes[cible] = disparus;
+        });
+        return pertes;
+    }
+
     function comparerAuLieu(attributs, aPoser) {
         const identiques = [], differents = [];
         const memeValeur = (a, b) => {
@@ -876,6 +909,7 @@
            ⚠️ Sans `attributs` (lieu non chargé), on montre tout : ne rien montrer
               faute d'avoir pu comparer serait le pire des deux. */
         const ecarts = attributs ? comparerAuLieu(attributs, valeurs.aPoser) : null;
+        const pertes = pertesDeLaPose(attributs, valeurs.aPoser);
         const aChanger = ecarts ? ecarts.differents : Object.keys(valeurs.aPoser);
         const poses = aChanger.filter(c => c !== 'name' && c !== 'description');
         const dejaConformes = ecarts
@@ -914,7 +948,10 @@
         if (poses.length) {
             zone.appendChild(titre(traduire('plusApplique')));
             poses.forEach(cible => {
-                const el = pastille('pose', libelleDeCible(cible), valeurLisible(valeurs.aPoser[cible]));
+                const perdu = pertes[cible];
+                const el = pastille(perdu ? 'perte' : 'pose', libelleDeCible(cible),
+                    valeurLisible(valeurs.aPoser[cible])
+                    + (perdu ? ' — ' + traduire('plusRetire') + ' ' + valeurLisible(perdu) : ''));
                 /* ⚠️ CE QUE LA VALEUR REMPLACE, EN INFOBULLE : un tableau écrase tout
                    son contenu dans WME, et sans cela on efface sans le savoir ce
                    qu'un autre éditeur avait renseigné. */
@@ -1682,6 +1719,8 @@
                   champs comme à appliquer, plutôt que de conclure « rien à faire »
                   d'une absence de mesure. */
             const attributsDuLieu = venueLoaded ? venue.attributes : null;
+            const pertesDuLieu = p.valeurs && attributsDuLieu
+                ? Object.keys(pertesDeLaPose(attributsDuLieu, p.valeurs.aPoser)).length : 0;
             const champsDiff = p.valeurs
                 ? (attributsDuLieu
                     ? comparerAuLieu(attributsDuLieu, p.valeurs.aPoser).differents
@@ -1722,8 +1761,13 @@
                 // Barrer l'ancienne valeur uniquement si elle change réellement
                 if (oldNameEl) oldNameEl.classList.toggle('changed', nameChanged);
                 if (oldDescEl) oldDescEl.classList.toggle('changed', descChanged);
-                // Cochage auto tant que l'utilisateur n'a pas décidé lui-même
-                if (!cb.disabled && !tr._cbUserSet) cb.checked = isDiff;
+                /* ⚠️⚠️ UNE LIGNE QUI RETIRE QUELQUE CHOSE NE SE COCHE PAS D'OFFICE.
+                   Le 16/09, un « Bitcoin » refusé réduisait la liste demandée à
+                   « Espèces » : appliquer aurait supprimé « Carte de crédit »
+                   d'un parking, et la ligne était cochée par défaut. Le
+                   caractère destructeur n'apparaissait qu'au survol.
+                   ⇒ Proposer une perte demande un geste, jamais un défaut. */
+                if (!cb.disabled && !tr._cbUserSet) cb.checked = isDiff && !pertesDuLieu;
             }
 
             // ── Colonne 🎯 (recentrage) + indicateurs (diff / non chargé / lock) ──

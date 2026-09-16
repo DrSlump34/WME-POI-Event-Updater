@@ -14,9 +14,9 @@
 
 import { charger } from './extraire.mjs';
 
-const { CHAMPS, mapChamps, lireValeurs, construireMaj, comparerAuLieu } =
+const { CHAMPS, mapChamps, lireValeurs, construireMaj, comparerAuLieu, pertesDeLaPose } =
     charger(['champs', 'colonnes', 'pose'],
-        ['CHAMPS', 'mapChamps', 'lireValeurs', 'construireMaj', 'comparerAuLieu']);
+        ['CHAMPS', 'mapChamps', 'lireValeurs', 'construireMaj', 'comparerAuLieu', 'pertesDeLaPose']);
 
 let reussis = 0;
 const echecs = [];
@@ -123,6 +123,44 @@ const toutesCibles = {};
 CHAMPS.filter(c => c.pose).forEach(c => { toutesCibles[c.cible] = c.multiple ? ['X'] : 'X'; });
 verifier('Aucune cible déclarée posable n’est écartée par la liste blanche',
     [], construireMaj(toutesCibles).ignores);
+
+
+/* ------------------------------------------------------------------ *
+ * 6. CE QUE LA POSE FERAIT DISPARAÎTRE — le cas vu sur la carte        *
+ * ------------------------------------------------------------------ */
+/* Le cas réel du 16/09 : « Bitcoin » refusé réduit la liste à « Espèces »,
+   et poser cela SUPPRIME « Carte de crédit » du parking. */
+verifier('🔴 Une liste réduite fait PERDRE ce qui n’y est plus',
+    { 'PARKING_LOT.paymentType': ['CREDIT'] },
+    pertesDeLaPose({ categoryAttributes: { PARKING_LOT: { paymentType: ['CREDIT', 'CASH'] } } },
+        { 'PARKING_LOT.paymentType': ['CASH'] }));
+
+verifier('Une liste ENRICHIE ne perd rien', {},
+    pertesDeLaPose({ categoryAttributes: { PARKING_LOT: { paymentType: ['CASH'] } } },
+        { 'PARKING_LOT.paymentType': ['CASH', 'CREDIT'] }));
+
+verifier('Une liste identique ne perd rien, quel que soit l’ordre', {},
+    pertesDeLaPose({ services: ['WI_FI', 'SECURITY'] }, { services: ['SECURITY', 'WI_FI'] }));
+
+verifier('Un lieu qui ne portait RIEN ne peut rien perdre', {},
+    pertesDeLaPose({ services: [] }, { services: ['WI_FI'] }));
+
+verifier('⚠️ Un champ SIMPLE remplacé n’est pas une perte : c’est un changement voulu', {},
+    pertesDeLaPose({ categoryAttributes: { PARKING_LOT: { costType: 'MODERATE' } } },
+        { 'PARKING_LOT.costType': 'FREE' }));
+
+verifier('Les noms alternatifs perdent aussi — ils remplacent, eux aussi',
+    { aliases: ['Gare TGV'] },
+    pertesDeLaPose({ aliases: ['Gare TGV', 'Avignon TGV'] }, { aliases: ['Avignon TGV'] }));
+
+verifier('Sans état du lieu, on n’invente aucune perte', {},
+    pertesDeLaPose(null, { services: ['WI_FI'] }));
+
+/* ⚠️ Défense : une valeur simple là où le lieu porte une liste ne se compare pas.
+   `lireValeurs` rend toujours un tableau pour un champ multiple — ce cas vient
+   donc d'un appel mal formé, et il ne doit rien inventer. */
+verifier('Une valeur simple face à une liste ne produit aucune perte', {},
+    pertesDeLaPose({ services: ['WI_FI', 'RESTROOMS'] }, { services: 'WI_FI' }));
 
 /* ------------------------------------------------------------------ */
 if (echecs.length === 0) {
