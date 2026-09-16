@@ -6,18 +6,18 @@
 
 ---
 
-# 🆕 16/09/2026 — LA REFONTE DE L'INTERFACE — v0.52 LOCALE, ⏳ NON PUBLIÉE
+# ✅ 16/09/2026 — LA REFONTE DE L'INTERFACE — v0.52 PUBLIÉE
 
-## ⏳ Ce qui n'est PAS publié
+## ✅ Publié le 16/09/2026
 
-| Version | Où | État |
-|---|---|---|
-| **0.50** | GreasyFork 578776, GitHub, Discuss | en ligne |
-| 0.51 | locale | la carte reste sur le périmètre — **jamais publiée** |
-| **0.52** | locale | la refonte complète — **jamais publiée** |
+| Où | Vérifié |
+|---|---|
+| **GreasyFork 578776** | code SERVI comparé au local : identique aux deux lignes que GreasyFork réécrit ; **une seule capture**, la 0.52 |
+| **GitHub** | poussé jusqu'à `ce9b664` — capture et README à jour |
+| **Discuss 404593** | post 1 (version × 2, capture, trois phrases devenues fausses) + annonce bilingue |
 
-⛔ **Le dépôt GitHub est resté à la 0.50.** Rien n'est poussé ni publié sans le
-geste de l'auteur.
+⚠️ **La 0.51 n'a jamais été publiée seule** : son apport (la carte reste sur le
+périmètre) est entré avec la 0.52, et l'annonce le dit.
 
 ## 🔴 LE SEUL CHEMIN NON ÉPROUVÉ, ET C'EST LE PLUS SENSIBLE
 
@@ -62,8 +62,6 @@ non cochée, et le bouton annonce le nombre exact de lignes cochées.
 ## ⏳ Reste
 
 1. **Appliquer**, une fois, dans l'éditeur (ci-dessus).
-2. Publier quand l'auteur le décidera : GitHub, GreasyFork 578776, Discuss
-   404593. ⚠️ Deux versions non publiées se suivent — l'annonce doit parler de
-   la **0.52** et dire ce que la 0.51 apportait.
+2. ✅ Publié le 16/09/2026.
 3. Les libellés morts de l'ancienne interface (une quarantaine) : ils ne gênent
    rien, `check-libelles.mjs` les liste en ⏳.
