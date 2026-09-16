@@ -97,35 +97,54 @@ verifier('une étendue sur un seul axe compte quand même',
  *    sur un code qui revient en arrière.
  * ⇒ Le dernier mot reste à l'essai dans WME. */
 const corps = (nom) => {
-    const d = source.indexOf(`async function ${nom}(`);
+    const d = source.indexOf(`function ${nom}(`);
     if (d === -1) return null;
     const f = source.indexOf('\n    }', d);
 
     return f === -1 ? null : source.slice(d, f);
 };
 
-const apercu = corps('showOverlay');
+/* ⚠️⚠️ LA CIBLE A CHANGÉ DE NOM, ET LE CONTRÔLE A REFUSÉ DE CONCLURE plutôt que
+   de passer au vert sur une fonction disparue. C'est ce qu'on lui demande : un
+   contrôle qui ne trouve plus sa cible n'a rien mesuré, et doit le dire. */
+const apercu = corps('ouvrirApercu');
 if (!apercu) {
-    echecs.push('showOverlay() est introuvable : le contrôle du câblage ne mesure plus rien');
+    echecs.push('ouvrirApercu() est introuvable : le contrôle du câblage ne mesure plus rien');
 } else {
-    /* ⭐ LA VUE NE REVIENT PLUS EN ARRIÈRE après le balayage — sauf si l'on
-       ANNULE, et cette restauration-là doit rester. Il en faut donc UNE, et une
-       seule : deux voudrait dire que celle de la fin est revenue. */
-    const restaurations = (apercu.match(/setCenter\(savedCenter, savedZoom\)/g) || []).length;
-    verifier('une seule restauration de la vue, celle de l’annulation', 1, restaurations);
+    /* ⭐⭐⭐ LA VUE NE REVIENT PLUS EN ARRIÈRE, JAMAIS. La restauration de
+       l'annulation elle-même a disparu : ce qu'on demandait, c'est que la carte
+       RESTE. Après un balayage interrompu, elle reste donc sur le dernier lieu
+       lu, qui est encore un lieu du fichier — et non au point de départ, qui
+       n'apprend rien. */
+    verifier('aucune restauration de la vue ne subsiste',
+        false, /setCenter\(savedCenter/.test(apercu));
 
-    /* ⚠️ DEUX FOIS, ET C'EST LE POINT : après le balayage ET après
-       l'application, qui déplace elle aussi la carte de lieu en lieu. Chercher
-       la PRÉSENCE de l'appel laissait passer la disparition de l'un des deux :
-       l'autre suffisait à rendre le contrôle vert. */
-    const cadrages = (apercu.match(/cadrerSurLesLieux\(venueMap\)/g) || []).length;
-    verifier('le périmètre est cadré après le balayage ET après l’application', 2, cadrages);
-
-    /* ⚠️ UN SEUL APERÇU À LA FOIS : deux tableaux empilés, et l'on applique
-       depuis celui qui ne décrit plus le fichier chargé. */
-    verifier('l’aperçu précédent est retiré avant d’en ouvrir un autre',
-        true, /querySelectorAll\('\.peu-overlay'\)[\s\S]{0,80}remove\(\)/.test(apercu));
+    verifier('le périmètre est cadré au terme du balayage',
+        true, apercu.includes('cadrerSurLesLieux(venueMap)'));
 }
+
+/* ⚠️ ET APRÈS L'APPLICATION AUSSI, qui déplace elle aussi la carte de lieu en
+   lieu. Les deux appels vivent désormais dans deux fonctions distinctes : on les
+   compte sur le fichier entier, mais on EXIGE les deux. */
+/* ⚠️ ON COMPTE LES APPELS, PAS UN ARGUMENT PRECIS : les deux ne passent pas
+   la meme variable, et exiger le meme texte faisait echouer un code correct. */
+const cadragesTotal = (source.match(/cadrerSurLesLieux\(/g) || []).length - 1;
+verifier('le cadrage a lieu après le balayage ET après l’application', 2, cadragesTotal);
+
+const application = corps('appliquerLignes');
+if (!application) {
+    echecs.push('appliquerLignes() est introuvable : le contrôle ne mesure plus rien');
+} else {
+    verifier('l’application recadre sur le périmètre en finissant',
+        true, application.includes('cadrerSurLesLieux(_apercu.venueMap)'));
+}
+
+/* ⚠️ UNE SEULE FENÊTRE, PAR CONSTRUCTION : `construireOverlay` rend celle qui
+   existe au lieu d'en créer une seconde. C'est ce qui remplace le nettoyage
+   d'aperçus empilés — deux tableaux superposés, et l'on appliquait depuis celui
+   qui ne décrivait plus le fichier chargé. */
+verifier('la fenêtre ne se construit qu’une fois',
+    true, /function construireOverlay\(\)[\s\S]{0,200}if \(ov\) return ov;/.test(source));
 
 // ---------------------------------------------------------------------------
 console.log(echecs.length

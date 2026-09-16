@@ -41,6 +41,11 @@
     // Icône de l'onglet : pin de localisation (= POI), détouré, affiché à la place du nom
     const TAB_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgd2lkdGg9JzI0JyBoZWlnaHQ9JzI0Jz48cGF0aCBmaWxsPScjMkM2RUQ1JyBkPSdNMTIgMkM4LjEzIDIgNSA1LjEzIDUgOWMwIDUuMjUgNyAxMyA3IDEzczctNy43NSA3LTEzYzAtMy44Ny0zLjEzLTctNy03eicvPjxjaXJjbGUgY3g9JzEyJyBjeT0nOScgcj0nMi42JyBmaWxsPScjZmZmZmZmJy8+PC9zdmc+';
     let poiData = [];
+    /* ⚠️ LA POIGNEE VERS LE CHAMP DE FICHIER, pas une seconde lecture : le
+       chemin qui lit le classeur valide vingt règles, tient un rapport
+       d’anomalies et alimente l’historique. Le déplacer aurait été échanger
+       une interface contre un risque. */
+    let _peuFileInput = null;
     let _peuLang = 'en'; // initialisé dans initScript avant tout appel à t()
 
     // Détection langue
@@ -73,6 +78,11 @@
                 guideOnglet:'Choisissez l’onglet à poser.',
                 guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
                 colSelect:'Poser', colEtat:'État',
+                cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
+                footerHelp:'Décochez ce que vous ne voulez pas poser. Les lignes orange RETIRENT des valeurs : elles ne sont jamais cochées d’office.',
+                bilanPartiel:(n)=>`⚠️ ${n} lieu(x) n’ont reçu qu’une partie des valeurs — voir le rapport.`,
+                bilanEchec:(n)=>`⚠️ ${n} lieu(x) n’ont pas pu être chargés : rien n’y a été posé.`,
+                bilanNonEnregistre:(n)=>`${n} modification(s) en attente dans WME — RIEN N’EST ENREGISTRÉ : relisez, puis cliquez sur Enregistrer dans l’éditeur.`,
                 cbTitre:'Poser cette ligne dans l’éditeur',
                 cbFige:'Cette ligne ne peut pas être posée — voir le badge d’état',
                 colNameTitle:'Le nom à poser. Modifiable avant d’appliquer.',
@@ -148,6 +158,11 @@
                 guideOnglet:'Choose the sheet to apply.',
                 guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
                 colSelect:'Apply', colEtat:'State',
+                cancelTitle:'Stop: what is already loaded is kept',
+                footerHelp:'Untick what you do not want to write. Orange rows REMOVE values: they are never ticked by default.',
+                bilanPartiel:(n)=>`⚠️ ${n} place(s) only received part of the values — see the report.`,
+                bilanEchec:(n)=>`⚠️ ${n} place(s) could not be loaded: nothing was written there.`,
+                bilanNonEnregistre:(n)=>`${n} pending change(s) in WME — NOTHING IS SAVED: review, then click Save in the editor.`,
                 cbTitre:'Write this row into the editor',
                 cbFige:'This row cannot be written — see the state badge',
                 colNameTitle:'The name to write. Editable before applying.',
@@ -2130,6 +2145,26 @@
         rendreRedimensionnable(ov, ov.querySelector('#peu-resize'));
 
         ov.querySelector('#peu-btn-fermer').addEventListener('click', fermerOverlay);
+
+        /* ⭐ LE SEUL BOUTON PLEIN DE LA FENETRE : l'etape suivante. Il etait un
+           glyphe d'un caractere dans la barre de titre, colle a celui qui ferme. */
+        ov.querySelector('#peu-btn-appliquer').addEventListener('click', () => { appliquerLignes(); });
+
+        ov.querySelector('#peu-btn-export').addEventListener('click', () => {
+            if (_apercu && _apercu.resultats) exportReport(_apercu.eventName, _apercu.resultats);
+        });
+
+        /* ⚠️ LE CHOIX DU FICHIER VIT DANS LA FENETRE, pas dans le panneau lateral :
+           c'est le premier geste du travail, et le travail est ici. Mais il passe
+           par LE MEME champ que le panneau — un second champ serait un second
+           chemin de lecture, et les deux divergeraient. */
+        ov.querySelector('#peu-btn-fichier').addEventListener('click', () => {
+            if (_peuFileInput) _peuFileInput.click();
+        });
+
+        ov.querySelector('#peu-select-onglet').addEventListener('change', (e) => {
+            if (e.target.value) ouvrirApercu(e.target.value);
+        });
         ov.querySelector('#peu-btn-replier').addEventListener('click', () => {
             const replie = ov.classList.toggle('peu-replie');
             const b = ov.querySelector('#peu-btn-replier');
@@ -2148,6 +2183,12 @@
         const ov = construireOverlay();
         ov.classList.add('peu-open');
         placerFenetre(ov);
+        /* ⭐ RIEN DE CHARGE ⇒ ON DIT PAR OU COMMENCER. Une fenetre vide avec un
+           bouton grise n'explique rien. */
+        if (!ov.querySelector('#peu-body').children.length) {
+            montrerGuide(poiData.length ? 'guideOnglet' : 'guideFichier',
+                poiData.length ? 'guideOngletSuite' : 'guideFichierSuite');
+        }
         majFab();
     }
 
@@ -2200,6 +2241,7 @@
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file'; fileInput.accept = '.xlsx,.xls'; fileInput.style.display = 'none';
+        _peuFileInput = fileInput;
         container.appendChild(fileInput);
 
         const btnChoose = document.createElement('button');
@@ -2246,7 +2288,7 @@
                     return;
                 }
             }
-            showOverlay(select.value);
+            ouvrirApercu(select.value);
         };
         container.appendChild(btnShow);
 
@@ -2462,6 +2504,7 @@
                     status.style.color = warnings.length ? '#e67e22' : '#27ae60';
                     recordFileLoaded(file.name);
                     renderHistory();
+                    majStrip(file.name, Array.from(new Set(poiData.map(p => p.event))), all.length);
                     showValidationReport(warnings);
                 } catch(err) {
                     status.textContent = '✖ ' + err.message; status.style.color = '#c0392b';
@@ -2472,698 +2515,433 @@
         });
     }
 
-    async function showOverlay(eventName) {
-        const pois = poiData.filter(p => p.event === eventName);
-        if (!pois.length) return alert(t('noPoi'));
+    /* ======================================================================
+       L'APERCU — il vit dans la fenetre, plus dans une boite a lui.
+       ====================================================================== */
 
-        /* ⚠️⚠️ UN SEUL APERÇU À LA FOIS. Rien ne retirait le précédent : charger
-           un second fichier sans fermer le premier empilait deux tableaux, dont
-           celui du dessous restait atteignable au clavier — et l'on pouvait
-           appliquer depuis un aperçu qui ne décrivait plus le fichier chargé. */
-        document.querySelectorAll('.peu-overlay').forEach((o) => o.remove());
+    /** L'etat courant de l'apercu : ce que l'ecran montre et sur quoi on agit. */
+    let _apercu = null;
 
-        // Où l'on était avant le balayage — utile seulement si l'on ANNULE.
-        const savedCenter = W.map.getCenter();
-        const savedZoom   = W.map.getZoom();
+    /**
+     * LE BANDEAU D'ETAT — ce qui est charge, sous les yeux en permanence.
+     *
+     * ⭐ IL PORTE LE CHOIX DE L'ONGLET, parce que c'est la QUESTION qui suit le
+     *    chargement : quel evenement pose-t-on ? La reponse commande tout le
+     *    reste de l'ecran, elle ne se range pas dans un menu.
+     */
+    function majStrip(nomFichier, onglets, nbPoi) {
+        const ov = construireOverlay();
+        const strip = ov.querySelector('#peu-strip');
+        strip.classList.toggle('peu-has-file', !!nomFichier);
+        ov.querySelector('#peu-strip-texte').textContent = nomFichier || t('noFile');
 
-        // --- Phase 1 : écran de chargement dans le panneau latéral ---
-        const loadingDiv = document.createElement('div');
-        loadingDiv.style.cssText = 'margin-top:10px;';
+        const sel = ov.querySelector('#peu-select-onglet');
+        sel.innerHTML = '';
+        (onglets || []).forEach((o) => {
+            const opt = document.createElement('option');
+            opt.value = o;
+            opt.textContent = o;
+            sel.appendChild(opt);
+        });
+        const aDesOnglets = !!(onglets && onglets.length);
+        sel.hidden = !aDesOnglets;
+        ov.querySelector('#peu-strip-sep1').hidden = !aDesOnglets;
+        ov.querySelector('#peu-strip-sep2').hidden = !aDesOnglets;
+        const compte = ov.querySelector('#peu-strip-compte');
+        compte.hidden = !aDesOnglets;
+        compte.textContent = t('poiCount', nbPoi || 0);
 
-        const loadLabel = document.createElement('div');
-        loadLabel.className = 'peu-progress-label';
-        loadLabel.textContent = t('loadingPois', 0, pois.length);
+        majFab();
+        if (aDesOnglets) montrerGuide('guideOnglet', 'guideOngletSuite');
+    }
 
-        const barBg = document.createElement('div'); barBg.className = 'peu-progress-bar-bg';
-        const bar   = document.createElement('div'); bar.className   = 'peu-progress-bar';
-        barBg.appendChild(bar);
-        loadingDiv.appendChild(loadLabel);
-        loadingDiv.appendChild(barBg);
+    /** Le corps de la fenetre, vide. */
+    function corpsFenetre() {
+        const ov = construireOverlay();
+        const corps = ov.querySelector('#peu-body');
+        corps.innerHTML = '';
 
-        // Bouton Annuler le préchargement
-        const cancelRef = { cancelled: false };
-        const btnCancel = document.createElement('button');
-        btnCancel.textContent = t('cancelBtn');
-        btnCancel.style.cssText = 'margin-top:6px;width:100%;background:#888;color:#fff;border:none;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer;';
-        btnCancel.onclick = () => { cancelRef.cancelled = true; btnCancel.disabled = true; btnCancel.style.opacity = '0.5'; };
-        loadingDiv.appendChild(btnCancel);
+        return corps;
+    }
 
-        const container = document.querySelector('.peu-container');
-        container && container.appendChild(loadingDiv);
+    /**
+     * LE GUIDAGE — il dit TOUJOURS le geste suivant.
+     *
+     * ⭐⭐⭐ UN ECRAN VIDE AVEC UN BOUTON GRISE N'EXPLIQUE RIEN. Quand rien n'est
+     *    charge, la fenetre ne doit pas se contenter de ne rien montrer : elle
+     *    doit dire par ou commencer.
+     */
+    function montrerGuide(cle, suite, extra) {
+        const corps = corpsFenetre();
+        corps.innerHTML = '<div class="peu-guide"><span class="peu-guide-n">1</span>'
+            + '<div><b>' + esc(t(cle)) + '</b>'
+            + '<div class="peu-guide-suite">' + esc(t(suite)) + '</div></div></div>'
+            + (extra || '');
+        majPied();
+    }
 
-        // Preload avec progression (annulable)
-        const venueMap = await preloadVenues(pois, (loaded, total) => {
-            bar.style.width = Math.round(loaded / total * 100) + '%';
-            loadLabel.textContent = t('loadingPois', loaded, total);
-        }, cancelRef);
+    /**
+     * LE PIED — il dit ce que le bouton va faire, et sur combien de lignes.
+     *
+     * ⚠️ ZERO EST UN RESULTAT : le bouton reste, desactive, en disant qu'il n'y
+     *    a rien de coche. Un bouton qui disparait se lit comme une panne.
+     */
+    function majPied() {
+        const ov = document.getElementById('peu-overlay');
+        if (!ov) return;
+        const btn = ov.querySelector('#peu-btn-appliquer');
+        const exp = ov.querySelector('#peu-btn-export');
+        const aide = ov.querySelector('#peu-footer-help');
+        const cases = ov.querySelectorAll('#peu-body .peu-ligne .peu-checkbox:checked');
+        const nb = cases.length;
 
-        /* Si annulé : on revient d'où l'on vient. Annuler, c'est dire « pas
-           ça » — y compris le déplacement qu'on vient de subir. */
-        if (cancelRef.cancelled) {
-            W.map.setCenter(savedCenter, savedZoom);
-            loadingDiv.remove();
-            return;
+        btn.textContent = libelleAppliquer(nb);
+        btn.disabled = nb === 0;
+        if (exp) exp.hidden = !_apercu || !_apercu.resultats;
+        if (aide) aide.textContent = t(_apercu ? 'footerHelp' : 'footerHelpVide');
+    }
+
+    /**
+     * LIT DANS LA FENETRE LES LIGNES QUE L'ON VA POSER.
+     *
+     * ⚠️⚠️ ON LIT LES CHAMPS ICI, UNE FOIS, ET L'ON PASSE DES CHAINES. La pose
+     *    ne doit jamais dependre d'un element du DOM : un redessin entre la
+     *    lecture et l'ecriture, et l'on pose ce qu'affichait l'ecran d'avant.
+     */
+    function lignesCochees() {
+        const ov = document.getElementById('peu-overlay');
+        if (!ov || !_apercu) return [];
+
+        return [...ov.querySelectorAll('#peu-body .peu-ligne')].filter((tr) => {
+            const cb = tr.querySelector('.peu-checkbox');
+
+            return cb && cb.checked && !cb.disabled;
+        }).map((tr) => {
+            const p = _apercu.pois[Number(tr.dataset.idx)];
+
+            return {
+                vid: getVenueIdFromPermalink(p.perm),
+                perm: p.perm,
+                nom: tr.querySelector('[data-nom]').value,
+                desc: tr.querySelector('[data-desc]').value,
+                valeurs: p.valeurs,
+            };
+        });
+    }
+
+    /**
+     * POSE UN LIEU — extrait tel quel de l'ancienne boucle, aux chaines pres.
+     *
+     * ⚠️⚠️ ON RELIT APRES AVOIR ECRIT, ET C'EST OBLIGATOIRE : le SDK n'eleve
+     *    aucune erreur devant un champ qu'il ne connait pas, ni devant une
+     *    valeur hors enumeration. Sans cette relecture, « applique » ne voudrait
+     *    dire que « l'appel n'a pas plante ».
+     *
+     * ⚠️⚠️ UN CHAMP A POSER QUI N'EST JAMAIS ENVOYE EST UN MANQUE, PAS UN SUCCES.
+     *    Si la liste se construit sans les valeurs, la mise a jour sort vide, le
+     *    SDK n'est pas appele, et l'ecran annonce « applique avec succes » sur un
+     *    lieu que personne n'a touche. Le compte ci-dessous le refuse.
+     */
+    async function poserUnLieu(item) {
+        const UpdateObject = require('Waze/Action/UpdateObject');
+        const venue = await centerAndLoad(item.perm, item.vid, 3000);
+        if (!venue) {
+            return { echec: true, resultat: { oldName: '', newName: item.nom, oldDesc: '', newDesc: item.desc, status: 'timeout' } };
         }
 
-        // ⭐ ON RESTE SUR LE PÉRIMÈTRE qu'on vient de parcourir.
+        const oldName = venue.attributes.name || '';
+        const oldDesc = venue.attributes.description || '';
+        /* ⚠️ Les noms alternatifs viennent du classeur s'il en porte, sinon on
+           REPASSE ceux du lieu tels quels : ne jamais les perdre au passage. */
+        const aPoser = (item.valeurs && item.valeurs.aPoser) || {};
+        W.model.actionManager.add(new UpdateObject(venue, {
+            id: venue.attributes.id,
+            name: item.nom,
+            description: item.desc,
+            aliases: aPoser.aliases || venue.attributes.aliases || [],
+        }));
+
+        let poseSdk = null;
+        const { maj, ignores } = construireMaj(aPoser);
+
+        const attendus = Object.keys(aPoser).filter((c) => !CIBLES_HERITEES.includes(c));
+        if (attendus.length && !Object.keys(maj).length) {
+            poseSdk = { identiques: [], differents: attendus };
+        }
+
+        if (Object.keys(maj).length) {
+            try {
+                const sdk = obtenirSdk();
+                sdk.DataModel.Venues.updateVenue(Object.assign({ venueId: item.vid }, maj));
+                const relu = W.model.venues.getObjectById(item.vid);
+                poseSdk = comparerAuLieu(relu ? relu.attributes : {}, aPoser);
+            } catch (e) {
+                poseSdk = { identiques: [], differents: Object.keys(maj), erreur: e.message };
+            }
+        }
+        if (ignores.length) {
+            poseSdk = poseSdk || { identiques: [], differents: [] };
+            poseSdk.differents = poseSdk.differents.concat(ignores);
+        }
+
+        return {
+            echec: false,
+            resultat: {
+                oldName: oldName, newName: item.nom,
+                oldDesc: oldDesc, newDesc: item.desc,
+                status: poseSdk && poseSdk.differents.length ? 'partial' : 'applied',
+                poses: poseSdk ? poseSdk.identiques : [],
+                manques: poseSdk ? poseSdk.differents : [],
+            },
+        };
+    }
+
+    /**
+     * LA BARRE DE PROGRESSION, dans le corps de la fenetre.
+     *
+     * ⚠️ BLEU FRANC : c'est du TRAVAIL EN COURS, ni une alerte (orange) ni un
+     *    resultat (vert). Les chiffres sont tabulaires, sans quoi ils dansent
+     *    d'un rafraichissement a l'autre.
+     */
+    function poserProgression(corps, libelle, total, surAnnulation, enTete) {
+        const div = document.createElement('div');
+        div.className = 'peu-prog';
+        div.innerHTML = '<div class="peu-prog-t">'
+            + '<span class="peu-progress-label">' + esc(libelle) + '</span>'
+            + '<span class="peu-prog-pct">0 %</span></div>'
+            + '<div class="peu-progress-bar-bg"><i class="peu-progress-bar"></i></div>'
+            + '<div class="peu-prog-b"><span class="peu-prog-d"></span>'
+            + (surAnnulation ? '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" data-annuler'
+                + ' title="' + esc(t('cancelTitle')) + '">' + esc(t('cancelBtn')) + '</button>' : '')
+            + '</div>';
+        if (enTete) corps.prepend(div); else corps.appendChild(div);
+
+        if (surAnnulation) div.querySelector('[data-annuler]').addEventListener('click', surAnnulation);
+
+        return {
+            avance(n, sur) {
+                const t2 = sur || total;
+                const p = t2 ? Math.round((n / t2) * 100) : 0;
+                div.querySelector('.peu-progress-bar').style.width = p + '%';
+                div.querySelector('.peu-prog-pct').textContent = p + ' %';
+                div.querySelector('.peu-prog-d').textContent = n + ' / ' + t2;
+            },
+            libelle(txt) { div.querySelector('.peu-progress-label').textContent = txt; },
+            retirer() { div.remove(); },
+        };
+    }
+
+    /**
+     * OUVRE L'APERCU D'UN ONGLET : precharge, cadre, puis montre le tableau.
+     */
+    async function ouvrirApercu(eventName) {
+        const pois = poiData.filter((p) => p.event === eventName);
+        if (!pois.length) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
+
+        ouvrirOverlay();
+        const corps = corpsFenetre();
+        const annule = { cancelled: false };
+        const prog = poserProgression(corps, t('loadingPois', 0, pois.length), pois.length,
+            () => { annule.cancelled = true; });
+
+        const venueMap = await preloadVenues(pois, (n, total) => prog.avance(n, total), annule);
+        prog.retirer();
+        if (annule.cancelled) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
+
+        // ⭐ ON RESTE SUR LE PERIMETRE qu'on vient de parcourir.
         cadrerSurLesLieux(venueMap);
-        loadingDiv.remove();
 
-        // --- Phase 2 : overlay tableau ---
-        const overlay = document.createElement('div'); overlay.className = 'peu-overlay';
-        const box = document.createElement('div'); box.className = 'peu-box';
+        _apercu = { eventName: eventName, pois: pois, venueMap: venueMap, resultats: null };
+        rendreTableau();
+    }
 
-        // Header
-        const header = document.createElement('div'); header.className = 'peu-header';
-        const headerLeft = document.createElement('div'); headerLeft.className = 'peu-header-left';
-        const headerTitle = document.createElement('span');
-        headerTitle.textContent = `${eventName} — ${t('poiCount', pois.length)}`;
-        const dragHint = document.createElement('span'); dragHint.className = 'peu-drag-hint';
-        dragHint.textContent = t('draggable');
-        headerLeft.appendChild(headerTitle); headerLeft.appendChild(dragHint);
+    /** Ce qu'il y a a dire d'une ligne, avant de la rendre. */
+    function vueDeLaLigne(p, idx, venueMap) {
+        const vid = getVenueIdFromPermalink(p.perm);
+        const venue = venueMap[vid];
+        const attributs = venue ? venue.attributes : null;
+        const aPoser = (p.valeurs && p.valeurs.aPoser) || null;
+        const verrou = venue ? getLockStatus(venue) : 'ok';
 
-        const headerBtns = document.createElement('div'); headerBtns.className = 'peu-header-btns';
-        const btnMin = document.createElement('button'); btnMin.className = 'peu-btn-icon minimize'; btnMin.title = t('btnMinimize'); btnMin.textContent = '▾';
-        let minimized = false;
-        btnMin.onclick = () => {
-            minimized = !minimized;
-            box.classList.toggle('minimized', minimized);
-            btnMin.textContent = minimized ? '▴' : '▾';
-            btnMin.title = minimized ? t('btnRestore') : t('btnReduce');
+        return {
+            idx: idx,
+            nom: p.name, desc: p.desc,
+            ancienNom: attributs ? (attributs.name || '') : '',
+            ancienDesc: attributs ? (attributs.description || '') : '',
+            nomChange: !!attributs && p.name !== (attributs.name || ''),
+            descChange: !!attributs && p.desc !== (attributs.description || ''),
+            charge: !!venue,
+            verrou: verrou,
+            niveau: venue && venue.attributes ? (venue.attributes.lockRank || 0) + 1 : 0,
+            pertes: attributs && aPoser ? Object.keys(pertesDeLaPose(attributs, aPoser)).length : 0,
+            champsDiff: champsQuiDifferent(attributs, aPoser),
+        };
+    }
+
+    /** Rend le tableau complet dans le corps de la fenetre, et le branche. */
+    function rendreTableau() {
+        const corps = corpsFenetre();
+        const vues = _apercu.pois.map((p, i) => vueDeLaLigne(p, i, _apercu.venueMap));
+
+        const barre = document.createElement('div');
+        barre.className = 'peu-toolbar';
+        barre.innerHTML = '<input type="text" class="peu-search" data-filtre'
+            + ' placeholder="' + esc(t('filterPlaceholder')) + '" title="' + esc(t('filterPlaceholder')) + '">'
+            + '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" data-ecarts'
+            + ' title="' + esc(t('tooltipDiffOn')) + '">' + esc(t('btnDiffActive')) + '</button>'
+            + '<span class="peu-search-count"></span>';
+        corps.appendChild(barre);
+
+        const table = document.createElement('table');
+        table.className = 'peu-table';
+        table.innerHTML = enteteApercu() + '<tbody>'
+            + vues.map((v) => ligneApercu(v)).join('') + '</tbody>';
+        corps.appendChild(table);
+
+        /* Les champs du lot D2, sous chaque ligne — le rendu existant, inchange. */
+        const tbody = table.querySelector('tbody');
+        [...tbody.querySelectorAll('.peu-ligne')].forEach((tr, i) => {
+            const p = _apercu.pois[i];
+            if (!p.valeurs) return;
+            const venue = _apercu.venueMap[getVenueIdFromPermalink(p.perm)];
+            const bloc = rendreComplements(document, p.valeurs, t, venue ? venue.attributes : null);
+            if (!bloc || !bloc.childNodes.length) return;
+            const trc = document.createElement('tr');
+            trc.className = 'peu-ligne peu-comp peu-row-' + (tr.className.match(/peu-row-(\w+)/) || [])[1];
+            trc.innerHTML = '<td></td><td></td><td colspan="2"></td>';
+            trc.lastElementChild.appendChild(bloc);
+            tr.after(trc);
+        });
+
+        /* ⚠️ LE COCHAGE EST DECIDE PAR LA REGLE, PAS PAR LE RENDU : une ligne qui
+           RETIRE quelque chose ne se coche jamais d'office. */
+        [...tbody.querySelectorAll('.peu-ligne:not(.peu-comp)')].forEach((tr, i) => {
+            const v = vues[i];
+            const cb = tr.querySelector('.peu-checkbox');
+            if (cb && !cb.disabled) {
+                cb.checked = cocherDOffice(v.nomChange, v.descChange, v.champsDiff, v.pertes);
+            }
+        });
+
+        brancherTableau(table, barre, vues);
+        majPied();
+    }
+
+    /** Branche les gestes du tableau : cases, filtre, recentrage, edition. */
+    function brancherTableau(table, barre, vues) {
+        const maitre = table.querySelector('[data-maitre]');
+
+        table.addEventListener('change', (e) => {
+            if (e.target.classList.contains('peu-checkbox') && e.target !== maitre) majPied();
+        });
+
+        maitre.addEventListener('change', () => {
+            table.querySelectorAll('tbody .peu-ligne:not(.peu-comp)').forEach((tr) => {
+                if (tr.style.display === 'none') return;
+                const cb = tr.querySelector('.peu-checkbox');
+                if (cb && !cb.disabled) cb.checked = maitre.checked;
+            });
+            majPied();
+        });
+
+        table.addEventListener('click', (e) => {
+            const cible = e.target.closest('[data-centrer]');
+            if (!cible) return;
+            const tr = cible.closest('.peu-ligne');
+            const p = _apercu.pois[Number(tr.dataset.idx)];
+            centerAndLoad(p.perm, getVenueIdFromPermalink(p.perm), 1500);
+        });
+
+        const filtre = barre.querySelector('[data-filtre]');
+        const btnEcarts = barre.querySelector('[data-ecarts]');
+        let ecartsSeuls = false;
+
+        const appliquerFiltres = () => {
+            const mot = filtre.value.trim().toLowerCase();
+            let vus = 0;
+            table.querySelectorAll('tbody .peu-ligne:not(.peu-comp)').forEach((tr, i) => {
+                const v = vues[i];
+                const texte = (tr.querySelector('[data-nom]').value + ' ' + tr.querySelector('[data-desc]').value).toLowerCase();
+                const garde = (!mot || texte.includes(mot))
+                    && (!ecartsSeuls || v.champsDiff > 0 || v.nomChange || v.descChange || v.pertes > 0);
+                tr.style.display = garde ? '' : 'none';
+                const comp = tr.nextElementSibling;
+                if (comp && comp.classList.contains('peu-comp')) comp.style.display = garde ? '' : 'none';
+                if (garde) vus++;
+            });
+            barre.querySelector('.peu-search-count').textContent = t('poiCount', vus);
         };
 
-        // Bouton diff only
-        const btnDiff = document.createElement('button'); btnDiff.className = 'peu-btn-icon diffonly active'; btnDiff.title = t('tooltipDiffOff');
-        let diffOnly = true;
-        btnDiff.textContent = t('btnDiffActive');
-        btnDiff.onclick = () => {
-            diffOnly = !diffOnly;
-            btnDiff.classList.toggle('active', diffOnly);
-            btnDiff.title = diffOnly ? t('tooltipDiffOff') : t('tooltipDiffOn');
-            applyFilters();
-            updateMasterCb();
-        };
-        const btnV = document.createElement('button'); btnV.className = 'peu-btn-icon apply'; btnV.title = t('btnApply'); btnV.textContent = '✔'; btnV.onclick = () => applyChanges();
-        const btnX = document.createElement('button'); btnX.className = 'peu-btn-icon cancel'; btnX.title = t('btnClose'); btnX.textContent = '✕'; btnX.onclick = () => overlay.remove();
-        headerBtns.appendChild(btnMin); headerBtns.appendChild(btnDiff); headerBtns.appendChild(btnV); headerBtns.appendChild(btnX);
-        // a11y : pour ces boutons purement iconographiques, le nom accessible = l'infobulle
-        headerBtns.querySelectorAll('button').forEach(b => b.title && b.setAttribute('aria-label', b.title));
-        header.appendChild(headerLeft); header.appendChild(headerBtns);
-        box.appendChild(header);
-
-        // Tableau
-        // Toolbar de recherche
-        const toolbar = document.createElement('div'); toolbar.className = 'peu-toolbar';
-        const searchInput = document.createElement('input'); searchInput.className = 'peu-search'; searchInput.placeholder = t('filterPlaceholder'); searchInput.type = 'text';
-        const searchClear = document.createElement('button'); searchClear.className = 'peu-search-clear'; searchClear.textContent = '✕'; searchClear.title = t('searchClearTitle');
-        const searchCount = document.createElement('span'); searchCount.className = 'peu-search-count';
-        toolbar.appendChild(searchInput); toolbar.appendChild(searchClear); toolbar.appendChild(searchCount);
-        box.appendChild(toolbar);
-
-        // Masquer toolbar quand minimisé
-        box.classList.contains('minimized') && (toolbar.style.display = 'none');
-
-        let searchTerm = '';
-        searchInput.addEventListener('input', () => {
-            searchTerm = searchInput.value.trim().toLowerCase();
-            searchClear.style.display = searchTerm ? 'block' : 'none';
-            applyFilters();
-        });
-        searchClear.addEventListener('click', () => {
-            searchInput.value = ''; searchTerm = '';
-            searchClear.style.display = 'none';
-            searchInput.focus();
-            applyFilters();
+        filtre.addEventListener('input', appliquerFiltres);
+        btnEcarts.addEventListener('click', () => {
+            ecartsSeuls = !ecartsSeuls;
+            btnEcarts.classList.toggle('peu-btn-primary', ecartsSeuls);
+            btnEcarts.classList.toggle('peu-btn-neutral', !ecartsSeuls);
+            btnEcarts.textContent = t(ecartsSeuls ? 'btnDiffAll' : 'btnDiffActive');
+            btnEcarts.title = t(ecartsSeuls ? 'tooltipDiffOff' : 'tooltipDiffOn');
+            appliquerFiltres();
         });
 
-        const scroll = document.createElement('div'); scroll.className = 'peu-scroll';
-        const table = document.createElement('table'); table.className = 'peu-table';
-        const cg = document.createElement('colgroup');
-        [null,null,null,null].forEach(() => cg.appendChild(document.createElement('col')));
-        table.appendChild(cg);
-        const thead = table.createTHead(); const trh = thead.insertRow();
+        appliquerFiltres();
+    }
 
-        // Colonnes : [label, sortable, extractFn]
-        // extractFn sera définie après construction du tbody (accès à tr._inputs)
-        const colDefs = [
-            { label: t('colSearch'), sortable: false },
-            { label: t('colName'),   sortable: true,  key: 'newName' },
-            { label: t('colDesc'),   sortable: true,  key: 'newDesc' },
-            { label: null,           sortable: false, master: true },
-        ];
+    /**
+     * APPLIQUE LES LIGNES COCHEES.
+     *
+     * ⛔ LE SCRIPT N'ENREGISTRE JAMAIS. Il pose des modifications dans la pile de
+     *    WME ; c'est l'editeur qui enregistre, apres avoir relu.
+     */
+    async function appliquerLignes() {
+        const items = lignesCochees();
+        if (!items.length) return;
 
-        const ths = colDefs.map(def => {
-            const th = document.createElement('th');
-            if (def.sortable) {
-                th.className = 'sortable';
-                const labelSpan = document.createElement('span'); labelSpan.textContent = def.label;
-                const sortIcon  = document.createElement('i'); sortIcon.className = 'peu-sort-icon'; sortIcon.textContent = '▲';
-                th.appendChild(labelSpan); th.appendChild(sortIcon);
-                th.dataset.sortKey = def.key;
-                th.dataset.sortDir = 'none';
-            } else if (def.master) {
-                // Case à cocher maître
-                const masterCb = document.createElement('input'); masterCb.type = 'checkbox';
-                masterCb.className = 'peu-checkbox'; masterCb.checked = true;
-                masterCb.title = t('masterCbTitle');
-                masterCb.addEventListener('change', () => {
-                    // N'agit que sur les lignes visibles et non désactivées
-                    tbody.querySelectorAll('tr').forEach(tr => {
-                        if (tr.style.display === 'none') return;
-                        const {cb} = tr._inputs;
-                        if (!cb.disabled) { cb.checked = masterCb.checked; tr._cbUserSet = true; }
-                    });
-                });
-                th.appendChild(masterCb);
-                // Mettre à jour la case maître quand une case individuelle change
-                th._masterCb = masterCb;
-            } else {
-                th.textContent = def.label;
-            }
-            trh.appendChild(th);
-            return th;
-        });
+        const ov = document.getElementById('peu-overlay');
+        const btn = ov.querySelector('#peu-btn-appliquer');
+        btn.disabled = true;
 
-        // Référence à la case maître pour mise à jour
-        const masterTh = ths.find(t => t._masterCb);
-        function updateMasterCb() {
-            if (!masterTh) return;
-            const visibleCbs = Array.from(tbody.querySelectorAll('tr'))
-                .filter(tr => tr.style.display !== 'none')
-                .map(tr => tr._inputs?.cb)
-                .filter(cb => cb && !cb.disabled);
-            const allChecked  = visibleCbs.every(cb => cb.checked);
-            const noneChecked = visibleCbs.every(cb => !cb.checked);
-            masterTh._masterCb.checked = allChecked;
-            masterTh._masterCb.indeterminate = !allChecked && !noneChecked;
+        const corps = ov.querySelector('#peu-body');
+        /* ⚠️ EN TETE DU CORPS : la liste peut etre longue, et une barre posee en
+           bas d une zone defilante travaille hors de vue. */
+        const prog = poserProgression(corps, t('applying', 0, items.length), items.length, null, true);
+
+        const resultats = [];
+        const echecs = [];
+        for (let i = 0; i < items.length; i++) {
+            const r = await poserUnLieu(items[i]);
+            resultats.push(r.resultat);
+            if (r.echec) echecs.push(items[i]);
+            prog.avance(i + 1);
         }
+        prog.retirer();
 
-        // Etat du tri courant
-        let currentSortTh = null;
+        cadrerSurLesLieux(_apercu.venueMap);
+        _apercu.resultats = resultats;
+        montrerBilan(corps, resultats, echecs);
+        majPied();
+    }
 
-        function sortTable(th) {
-            const key = th.dataset.sortKey;
-            const dir = th.dataset.sortDir;
-            // Cycle : none/desc → asc, asc → desc, desc → none (ordre original)
-            const nextDir = dir === 'asc' ? 'desc' : dir === 'desc' ? 'none' : 'asc';
+    /**
+     * LE BILAN — il dit ce qui est pose, ce qui manque, et que RIEN N'EST
+     * ENREGISTRE.
+     *
+     * ⚠️ « Applique » ne veut pas dire « enregistre » : la confusion coute une
+     *    session de travail perdue, et elle ne se voit qu'au rechargement.
+     */
+    function montrerBilan(corps, resultats, echecs) {
+        const poses = resultats.filter((r) => r.status === 'applied').length;
+        const partiels = resultats.filter((r) => r.status === 'partial').length;
+        const div = document.createElement('div');
+        div.className = 'peu-alert ' + (echecs.length || partiels ? 'peu-alert-warn' : 'peu-alert-ok');
+        div.innerHTML = '<b>' + esc(t('successMsg', poses)) + '</b>'
+            + (partiels ? '<br>' + esc(t('bilanPartiel', partiels)) : '')
+            + (echecs.length ? '<br>' + esc(t('bilanEchec', echecs.length)) : '')
+            + '<br>' + esc(t('bilanNonEnregistre', nbModifsEnAttente()));
+        corps.prepend(div);
+    }
 
-            // Reset tous les th
-            ths.forEach(t => {
-                if (!t.dataset.sortKey) return;
-                t.dataset.sortDir = 'none';
-                t.classList.remove('sort-asc', 'sort-desc');
-                t.querySelector('.peu-sort-icon').textContent = '▲';
-            });
-
-            if (nextDir === 'none') {
-                // Restaurer l'ordre original
-                const rows = Array.from(tbody.querySelectorAll('tr'));
-                rows.sort((a, b) => parseInt(a.dataset.origIdx) - parseInt(b.dataset.origIdx));
-                rows.forEach(r => tbody.appendChild(r));
-                currentSortTh = null;
-                return;
-            }
-
-            th.dataset.sortDir = nextDir;
-            th.classList.add(nextDir === 'asc' ? 'sort-asc' : 'sort-desc');
-            th.querySelector('.peu-sort-icon').textContent = nextDir === 'asc' ? '▲' : '▼';
-            currentSortTh = th;
-
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            rows.sort((a, b) => {
-                const va = (a.dataset[key] || '').toLowerCase();
-                const vb = (b.dataset[key] || '').toLowerCase();
-                return nextDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-            });
-            rows.forEach(r => tbody.appendChild(r));
-        }
-
-        const tbody = table.createTBody();
-        let cntSae = 0, cntHard = 0;
-
-        pois.forEach((p, idx) => {
-            const tr = tbody.insertRow();
-            tr.dataset.origIdx = idx; // pour restaurer l'ordre original
-            const vid = getVenueIdFromPermalink(p.perm);
-            const venue = venueMap[vid];
-            const oldName = venue?.attributes?.name || '';
-            const oldDesc = venue?.attributes?.description || '';
-            const venueLoaded = !!venue; // false si préchargement échoué
-
-            /* Ce que le lieu porte déjà, et combien de champs du lot D2 en diffèrent.
-               ⚠️ Un lieu non chargé ne se compare à rien : on compte alors TOUS les
-                  champs comme à appliquer, plutôt que de conclure « rien à faire »
-                  d'une absence de mesure. */
-            const attributsDuLieu = venueLoaded ? venue.attributes : null;
-            const pertesDuLieu = p.valeurs && attributsDuLieu
-                ? Object.keys(pertesDeLaPose(attributsDuLieu, p.valeurs.aPoser)).length : 0;
-            const champsDiff = champsQuiDifferent(attributsDuLieu, p.valeurs && p.valeurs.aPoser);
-
-            // Données de tri/filtre stockées sur la ligne (mises à jour si l'utilisateur édite)
-            tr.dataset.oldName = oldName;
-            tr.dataset.oldDesc = oldDesc;
-            tr.dataset.newName = p.name;
-            tr.dataset.newDesc = p.desc;
-            tr._cbUserSet = false; // passe à true dès que l'utilisateur (dé)coche lui-même
-
-            const lockStatus = getLockStatus(venue);
-            const lockRank = venue?.attributes?.lockRank ?? 0;
-            const userRank = W?.loginManager?.user?.attributes?.rank ?? 0;
-
-            if (!venueLoaded) {
-                tr.classList.add('peu-row-unloaded');
-            } else if (lockStatus === 'sae')  { cntSae++;  tr.classList.add('peu-row-sae'); }
-            if (lockStatus === 'hard') { cntHard++; tr.classList.add('peu-row-hard'); }
-
-            // Met à jour l'indicateur diff (à la construction + à chaque frappe)
-            function updateDiff() {
-                const nameChanged = tr.dataset.newName !== tr.dataset.oldName;
-                const descChanged = tr.dataset.newDesc !== tr.dataset.oldDesc;
-                /* ⚠️ LES CHAMPS DU LOT D2 COMPTENT AUSSI : sans eux, l'aperçu
-                   annonce « Aucune modification » sur un lieu qui a des champs à
-                   poser, et l'on ferme la fenêtre en confiance. */
-                const isDiff = nameChanged || descChanged || champsDiff > 0;
-                tr.dataset.hasDiff = isDiff ? 'true' : 'false';
-                // Ne pas écraser hard/sae
-                if (lockStatus === 'ok') tr.classList.toggle('peu-row-diff', isDiff);
-                diffDot.style.display = isDiff ? 'block' : 'none';
-                // Barrer l'ancienne valeur uniquement si elle change réellement
-                if (oldNameEl) oldNameEl.classList.toggle('changed', nameChanged);
-                if (oldDescEl) oldDescEl.classList.toggle('changed', descChanged);
-                /* ⚠️ LA RÈGLE DU COCHAGE VIT DANS `cocherDOffice`, éprouvée par
-                   `tools/banc-cochage.mjs` : elle n'existait que dans ce DOM, où
-                   rien ne pouvait la mesurer. */
-                if (!cb.disabled && !tr._cbUserSet) {
-                    cb.checked = cocherDOffice(nameChanged, descChanged, champsDiff, pertesDuLieu);
-                }
-            }
-
-            // ── Colonne 🎯 (recentrage) + indicateurs (diff / non chargé / lock) ──
-            const td0 = tr.insertCell(); td0.className = 'center';
-            const b0 = document.createElement('button'); b0.className = 'peu-btn-center'; b0.textContent = '🎯';
-            b0.title = t('locateTitle'); b0.setAttribute('aria-label', t('locateTitle'));
-            b0.onclick = () => {
-                const v = W.model.venues.getObjectById(vid);
-                const bds = v?.getOLGeometry()?.getBounds();
-                if (bds) {
-                    const center = bds.getCenterLonLat();
-                    if (W.map.getZoom() < 17) W.map.setCenter(center, 17);
-                    else W.map.setCenter(center);
-                    return;
-                }
-                // Fallback : venue plus en mémoire → recentrer via le permalink
-                const coords = parseLatLon(p.perm);
-                if (coords) {
-                    const ll = new OpenLayers.LonLat(coords.lon, coords.lat).transform(
-                        new OpenLayers.Projection('EPSG:4326'),
-                        W.map.getProjectionObject()
-                    );
-                    W.map.setCenter(ll, 17);
-                }
-            };
-            td0.appendChild(b0);
-
-            const diffDot = document.createElement('span'); diffDot.className = 'peu-diff-dot';
-            diffDot.title = t('diffTitle'); diffDot.style.display = 'none';
-            td0.appendChild(diffDot);
-
-            if (!venueLoaded) {
-                const unloadedIcon = document.createElement('span');
-                unloadedIcon.className = 'peu-unloaded-icon';
-                unloadedIcon.textContent = t('unloadedLabel');
-                unloadedIcon.title = t('unloadedTitle');
-                td0.appendChild(unloadedIcon);
-            }
-            if (lockStatus !== 'ok') {
-                const lockIcon = document.createElement('div');
-                lockIcon.className = lockStatus === 'hard' ? 'peu-lock-hard' : 'peu-lock-sae';
-                lockIcon.textContent = lockStatus === 'hard' ? '🔒' : '⚠️';
-                lockIcon.title = lockStatus === 'hard'
-                    ? t('lockHardTitle')
-                    : t('lockSaeTitle', lockRank, userRank);
-                td0.appendChild(lockIcon);
-            }
-
-            // La ligne « ancienne valeur » est réservée dans les DEUX colonnes dès que
-            // l'une des deux a une valeur, afin que les champs restent alignés.
-            const hasOld = !!oldName || !!oldDesc;
-            const makeOldEl = (val) => {
-                const el = document.createElement('div');
-                el.className = 'peu-cell-old';
-                el.textContent = val;
-                if (val) el.title = val; // texte complet en infobulle (affichage tronqué)
-                return el;
-            };
-
-            // ── Colonne NOM (ancien au-dessus, barré si modifié, + champ éditable) ──
-            const tdName = tr.insertCell();
-            let oldNameEl = null;
-            if (hasOld) { oldNameEl = makeOldEl(oldName); tdName.appendChild(oldNameEl); }
-            const inpName = document.createElement('input'); inpName.className = 'peu-input'; inpName.value = p.name;
-            if (lockStatus === 'hard') inpName.disabled = true;
-            inpName.addEventListener('input', () => { tr.dataset.newName = inpName.value; updateDiff(); applyFilters(); });
-            tdName.appendChild(inpName);
-
-            // ── Colonne DESCRIPTION (ancienne au-dessus, barrée si modifiée, + champ) ──
-            const tdDesc = tr.insertCell();
-            let oldDescEl = null;
-            if (hasOld) { oldDescEl = makeOldEl(oldDesc); tdDesc.appendChild(oldDescEl); }
-            const txtArea = document.createElement('textarea'); txtArea.className = 'peu-textarea'; txtArea.value = p.desc;
-            if (lockStatus === 'hard') txtArea.disabled = true;
-            txtArea.addEventListener('input', () => { tr.dataset.newDesc = txtArea.value; updateDiff(); applyFilters(); });
-            tdDesc.appendChild(txtArea);
-
-            /* Les champs du lot D2, s'il y en a : dans LA MÊME cellule, pour survivre au tri.
-               ⚠️ Le lieu est passé au rendu pour qu'il ne montre que ce qui CHANGE. */
-            if (p.valeurs) {
-                const complements = rendreComplements(document, p.valeurs, t, attributsDuLieu);
-                if (complements) tdDesc.appendChild(complements);
-            }
-
-            // ── Colonne case à cocher ──
-            const tdCB = tr.insertCell(); tdCB.className = 'center';
-            const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'peu-checkbox';
-            cb.checked = false;
-            if (lockStatus === 'hard' || !venueLoaded) cb.disabled = true;
-            cb.addEventListener('change', () => { tr._cbUserSet = true; updateMasterCb(); });
-            tdCB.appendChild(cb);
-
-            tr._inputs = {vid, inpName, txtArea, cb, valeurs: p.valeurs};
-            tr.dataset.champsDiff = String(champsDiff);
-
-            // Initialiser l'indicateur diff au chargement
-            updateDiff();
-        });
-
-        // Message "rien à modifier" — inséré dans le scroll, affiché si besoin
-        const emptyMsg = document.createElement('div');
-        emptyMsg.style.cssText = 'padding:24px;text-align:center;color:#888;font-size:12px;';
-        emptyMsg.innerHTML = t('emptyMsg') + '<br><span style="color:#2C6ED5;cursor:pointer;text-decoration:underline;" id="peu-show-all">' + t('emptyShowAll') + '</span>';
-        scroll.appendChild(emptyMsg);
-        emptyMsg.style.display = 'none';
-        emptyMsg.querySelector('#peu-show-all').addEventListener('click', () => {
-            diffOnly = false;
-            btnDiff.classList.remove('active');
-            btnDiff.textContent = t('btnDiffAll');
-            btnDiff.title = t('tooltipDiffOff');
-            applyFilters();
-        });
-
-        // Filtre combiné : diff only + recherche par nom
-        function applyFilters() {
-            let visible = 0;
-            let totalDiff = 0;
-            tbody.querySelectorAll('tr').forEach(tr => {
-                if (tr.dataset.hasDiff === 'true') totalDiff++;
-                const hasDiff    = tr.dataset.hasDiff === 'true';
-                const isUnloaded = tr.classList.contains('peu-row-unloaded');
-                const oldName    = (tr.dataset.oldName || '').toLowerCase();
-                const newName    = (tr.dataset.newName || '').toLowerCase();
-                const matchDiff  = !diffOnly || hasDiff || isUnloaded;
-                const matchSearch = !searchTerm || oldName.includes(searchTerm) || newName.includes(searchTerm);
-                const show = matchDiff && matchSearch;
-                tr.style.display = show ? '' : 'none';
-                if (show) visible++;
-            });
-            const total = pois.length;
-
-            // Message vide si mode diff et aucun diff
-            const noChanges = diffOnly && totalDiff === 0;
-            emptyMsg.style.display = noChanges ? 'block' : 'none';
-            table.style.display    = noChanges ? 'none'  : '';
-
-            // Label bouton Diff adaptatif
-            if (diffOnly) {
-                btnDiff.classList.add('active');
-                btnDiff.textContent = totalDiff === 0 ? t('btnUpToDate') : t('btnDiffActive');
-                btnDiff.title = t('tooltipDiffOn');
-            } else {
-                btnDiff.classList.remove('active');
-                btnDiff.textContent = t('btnDiffAll');
-                btnDiff.title = t('tooltipDiffOff');
-            }
-
-            // Compteur recherche
-            searchCount.textContent = searchTerm
-                ? `${visible} / ${total}`
-                : diffOnly && totalDiff > 0 ? t('diffCount', totalDiff) : '';
-
-            // Titre
-            headerTitle.childNodes[0].textContent = diffOnly
-                ? `${eventName} — ${totalDiff > 0 ? t('poiCountDiff', totalDiff) : t('upToDateTitle')}`
-                : `${eventName} — ${t('poiCount', total)}`;
-
-            updateMasterCb();
-        }
-
-        table.appendChild(tbody); scroll.appendChild(table); box.appendChild(scroll);
-
-        // Appliquer le filtre initial (diff only par défaut)
-        // Tri par défaut : diff en premier, puis alpha dans chaque groupe
-        function applyDefaultSort() {
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            rows.sort((a, b) => {
-                const aDiff = a.dataset.hasDiff === 'true' ? 0 : 1;
-                const bDiff = b.dataset.hasDiff === 'true' ? 0 : 1;
-                if (aDiff !== bDiff) return aDiff - bDiff;
-                const va = (a.dataset.oldName || a.dataset.newName || '').toLowerCase();
-                const vb = (b.dataset.oldName || b.dataset.newName || '').toLowerCase();
-                return va.localeCompare(vb);
-            });
-            rows.forEach(r => tbody.appendChild(r));
-        }
-
-        // Si aucun tri volontaire actif, on maintient le tri alpha par défaut
-        // (le tri volontaire positionne currentSortTh, le retour à "none" le remet à null)
-        const origSortTable = sortTable;
-        function sortTableWithDefaultFallback(th) {
-            origSortTable(th);
-            // Si on revient à "none" (ordre original), on réapplique le tri alpha par défaut
-            if (!currentSortTh) applyDefaultSort();
-        }
-        ths.forEach(th => {
-            if (th.dataset.sortKey) {
-                th._sortHandler = () => sortTableWithDefaultFallback(th);
-                th.addEventListener('click', th._sortHandler);
-            }
-        });
-
-        applyDefaultSort();
-        applyFilters();
-        updateMasterCb();
-
-        // Compteurs lock dans le titre
-        if (cntSae > 0 || cntHard > 0) {
-            if (cntSae > 0) {
-                const b = document.createElement('span'); b.className = 'peu-lock-badge sae';
-                b.textContent = t('badgeSae', cntSae); b.title = t('badgeSaeTitle');
-                headerTitle.appendChild(b);
-            }
-            if (cntHard > 0) {
-                const b = document.createElement('span'); b.className = 'peu-lock-badge hard';
-                b.textContent = `${cntHard} 🔒`; b.title = t('badgeHardTitle');
-                headerTitle.appendChild(b);
-            }
-        }
-
-        const footer = document.createElement('div'); footer.className = 'peu-footer';
-        let footerTxt = t('footerHelp');
-        if (cntSae > 0)  footerTxt += '  ' + t('footerSae');
-        if (cntHard > 0) footerTxt += '  ' + t('footerHard');
-        footer.textContent = footerTxt;
-        box.appendChild(footer);
-
-        overlay.appendChild(box);
-        document.body.appendChild(overlay);
-        makeDraggable(box, header);
-
-        function applyChanges() {
-            // Collecter les lignes cochées
-            const toApply = [];
-            tbody.querySelectorAll('tr').forEach(tr => {
-                const {vid, inpName, txtArea, cb, valeurs} = tr._inputs;
-                if (!cb.checked) return;
-                const poi = pois.find(p => getVenueIdFromPermalink(p.perm) === vid);
-                /* 🔴 `valeurs` A MANQUÉ ICI, ET LE SCRIPT A DIT « SUCCÈS ». Sans lui,
-                   `runApply` recevait un objet sans champs du lot D2 : rien n'était
-                   envoyé au SDK, aucune action n'entrait dans la pile, et l'écran
-                   annonçait « 1 POI appliqué avec succès » sur un lieu intact.
-                   ⇒ Une chaîne qui se coupe entre l'aperçu et l'application ne se
-                     voit QUE sur la carte : l'aperçu, lui, était juste. */
-                if (poi) toApply.push({vid, perm: poi.perm, inpName, txtArea, name: inpName.value, valeurs});
-            });
-
-            if (!toApply.length) { overlay.remove(); return; }
-
-            // Désactiver les boutons pendant l'application
-            btnV.disabled = true; btnX.disabled = true; btnMin.disabled = true;
-            btnV.style.opacity = '0.5'; btnX.style.opacity = '0.5';
-
-            // Masquer le footer normal et créer un div de progression dédié
-            footer.style.display = 'none';
-            const progressDiv = document.createElement('div');
-            progressDiv.style.cssText = 'padding:8px 14px;background:#f0f4fb;border-top:1px solid #dde3ee;flex-shrink:0;';
-            const applyLabel = document.createElement('div');
-            applyLabel.className = 'peu-progress-label';
-            applyLabel.style.marginBottom = '4px';
-            applyLabel.textContent = t('applying', 0, toApply.length);
-            const applyBarBg = document.createElement('div'); applyBarBg.className = 'peu-progress-bar-bg';
-            const applyBar   = document.createElement('div'); applyBar.className   = 'peu-progress-bar';
-            applyBarBg.appendChild(applyBar);
-            progressDiv.appendChild(applyLabel);
-            progressDiv.appendChild(applyBarBg);
-            box.appendChild(progressDiv);
-
-            function showExportFooter(results) {
-                // Retirer le div de progression
-                if (progressDiv.parentNode) progressDiv.parentNode.removeChild(progressDiv);
-                // Créer le footer export et l'ajouter à la box
-                const exportFooter = document.createElement('div');
-                exportFooter.style.cssText = 'padding:10px 14px;background:#f0f4fb;border-top:2px solid #27ae60;font-size:11px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;';
-                const appliedCount = results.filter(r => r.status === 'applied').length;
-                const msg = document.createElement('span');
-                msg.style.color = '#27ae60'; msg.style.fontWeight = '600';
-                msg.textContent = t('successMsg', appliedCount);
-                const btnExport = document.createElement('button');
-                btnExport.style.cssText = 'background:#2C6ED5;color:#fff;border:none;border-radius:4px;padding:5px 12px;font-size:11px;cursor:pointer;font-weight:600;';
-                btnExport.textContent = t('btnExport');
-                btnExport.onclick = () => exportReport(eventName, results);
-                const btnClose = document.createElement('button');
-                btnClose.style.cssText = 'background:#888;color:#fff;border:none;border-radius:4px;padding:5px 12px;font-size:11px;cursor:pointer;margin-left:6px;';
-                btnClose.textContent = t('btnClose');
-                btnClose.onclick = () => overlay.remove();
-                const btns = document.createElement('div'); btns.style.display = 'flex';
-                btns.appendChild(btnExport); btns.appendChild(btnClose);
-                exportFooter.appendChild(msg); exportFooter.appendChild(btns);
-                box.appendChild(exportFooter);
-            }
-
-            async function runApply(items, allResults = []) {
-                const UpdateObject = require('Waze/Action/UpdateObject');
-                const failed = [];
-
-                for (let i = 0; i < items.length; i++) {
-                    const item = items[i];
-                    const {vid, perm, inpName, txtArea} = item;
-                    const venue = await centerAndLoad(perm, vid, 3000);
-                    if (venue) {
-                        const oldName = venue.attributes.name || '';
-                        const oldDesc = venue.attributes.description || '';
-                        /* ⚠️ Les noms alternatifs viennent du classeur s'il en porte,
-                           sinon on REPASSE ceux du lieu tels quels — règle d'origine
-                           du script : ne jamais les perdre au passage. */
-                        const aPoser = (item.valeurs && item.valeurs.aPoser) || {};
-                        W.model.actionManager.add(new UpdateObject(venue, {
-                            id: venue.attributes.id,
-                            name: inpName.value,
-                            description: txtArea.value,
-                            aliases: aPoser.aliases || venue.attributes.aliases || []
-                        }));
-
-                        /* ── Les champs du lot D2, par le SDK ──
-                           ⚠️⚠️ ON RELIT APRÈS AVOIR ÉCRIT, ET C'EST OBLIGATOIRE : le SDK
-                              n'élève aucune erreur devant un champ qu'il ne connaît pas
-                              ni devant une valeur hors énumération. Sans cette relecture,
-                              « appliqué » ne voudrait dire que « l'appel n'a pas planté ». */
-                        let poseSdk = null;
-                        const { maj, ignores } = construireMaj(aPoser);
-
-                        /* ⚠️⚠️ UN CHAMP À POSER QUI N'EST JAMAIS ENVOYÉ EST UN MANQUE, PAS UN
-                           SUCCÈS. Si la liste à appliquer se construit sans les valeurs,
-                           `maj` sort vide, le SDK n'est pas appelé, et l'écran annonce
-                           « appliqué avec succès » sur un lieu que personne n'a touché.
-                           Le compte ci-dessous le refuse. */
-                        const attendus = Object.keys(aPoser).filter(c => !CIBLES_HERITEES.includes(c));
-                        if (attendus.length && !Object.keys(maj).length) {
-                            poseSdk = { identiques: [], differents: attendus };
-                        }
-
-                        if (Object.keys(maj).length) {
-                            try {
-                                const sdk = obtenirSdk();
-                                sdk.DataModel.Venues.updateVenue({ venueId: vid, ...maj });
-                                const relu = W.model.venues.getObjectById(vid);
-                                poseSdk = comparerAuLieu(relu ? relu.attributes : {}, aPoser);
-                            } catch (e) {
-                                poseSdk = { identiques: [], differents: Object.keys(maj), erreur: e.message };
-                            }
-                        }
-                        if (ignores.length) {
-                            poseSdk = poseSdk || { identiques: [], differents: [] };
-                            poseSdk.differents = poseSdk.differents.concat(ignores);
-                        }
-
-                        allResults.push({
-                            oldName, newName: inpName.value,
-                            oldDesc, newDesc: txtArea.value,
-                            status: poseSdk && poseSdk.differents.length ? 'partial' : 'applied',
-                            poses: poseSdk ? poseSdk.identiques : [],
-                            manques: poseSdk ? poseSdk.differents : []
-                        });
-                    } else {
-                        failed.push(item);
-                        allResults.push({
-                            oldName: '', newName: inpName.value,
-                            oldDesc: '', newDesc: txtArea.value,
-                            status: 'timeout'
-                        });
-                    }
-                    applyBar.style.width = Math.round((i + 1) / items.length * 100) + '%';
-                    applyLabel.textContent = t('applying', i+1, items.length);
-                }
-
-                // ⭐ ON RESTE SUR LE PÉRIMÈTRE, comme après le préchargement :
-                //    l'application déplace la carte de lieu en lieu, et revenir
-                //    au point de départ masquerait ce qu'on vient de poser.
-                cadrerSurLesLieux(venueMap);
-
-                if (failed.length === 0) {
-                    await new Promise(r => setTimeout(r, 100));
-                    showExportFooter(allResults);
-                    btnX.disabled = false; btnX.style.opacity = '1';
-                    // Enregistrer dans l'historique avec délai pour éviter interférence DOM
-                    const currentFile = getHistory()[0]?.name;
-                    if (currentFile) {
-                        recordFileApplied(currentFile);
-                        setTimeout(() => renderHistory(), 500);
-                    }
-                    return;
-                }
-
-                // Rapport d'échec
-                box.removeChild(progressDiv);
-                const errFooter = document.createElement('div'); errFooter.className = 'peu-footer-error';
-                const errTitle = document.createElement('div'); errTitle.className = 'peu-error-title';
-                errTitle.textContent = t('timeoutReport', failed.length);
-                errFooter.appendChild(errTitle);
-                const ul = document.createElement('ul');
-                failed.forEach(f => {
-                    const li = document.createElement('li');
-                    li.textContent = f.inpName.value || f.vid;
-                    ul.appendChild(li);
-                });
-                errFooter.appendChild(ul);
-
-                const btnRetry = document.createElement('button'); btnRetry.className = 'peu-btn-retry';
-                btnRetry.textContent = t('btnRetry', failed.length);
-                btnRetry.onclick = () => {
-                    box.removeChild(errFooter);
-                    box.appendChild(progressDiv);
-                    applyLabel.textContent = t('applying', 0, failed.length);
-                    applyBar.style.width = '0%';
-                    runApply(failed, allResults);
-                };
-                errFooter.appendChild(btnRetry);
-                box.appendChild(errFooter);
-
-                // Réactiver fermeture uniquement
-                btnX.disabled = false; btnX.style.opacity = '1';
-                btnX.onclick = () => overlay.remove();
-                btnMin.disabled = false;
-            }
-
-            runApply(toApply);
-        }
+    /** Ce que WME a en attente — le chiffre qui dit qu'il reste a enregistrer. */
+    function nbModifsEnAttente() {
+        try { return W.model.actionManager.getActions().length; } catch (e) { return 0; }
     }
 
     let _peuInited = false;
