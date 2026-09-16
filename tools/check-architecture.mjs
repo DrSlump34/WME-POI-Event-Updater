@@ -104,6 +104,77 @@ if (!rapport) {
 }
 
 // ---------------------------------------------------------------------------
+// Le classeur se depose, et pas seulement se choisit
+// ---------------------------------------------------------------------------
+const depot = corps('brancherDepot');
+if (!depot) {
+    echecs.push('brancherDepot() est introuvable : le controle ne mesure plus rien');
+} else {
+    /* ⚠️⚠️ `preventDefault` SUR dragover ET SUR drop : sans le premier, le
+       navigateur refuse le depot ; sans le second, il OUVRE le classeur a la
+       place de la carte — et l'on perd sa session d'edition. */
+    ['dragover', 'drop'].forEach((evt) => {
+        verifier(`« ${evt} » est ecoute`, true, depot.includes(`'${evt}'`));
+    });
+    verifier('le geste par defaut du navigateur est empeche',
+        true, depot.includes('e.preventDefault()'));
+
+    /* ⚠️⚠️ LE FICHIER DEPOSE PASSE PAR LE MEME CHAMP : un second chemin de
+       lecture divergerait du premier, et il le ferait en silence. */
+    verifier('le fichier depose passe par le champ de fichier existant',
+        true, depot.includes('_peuFileInput.files = dt.files'));
+    verifier('et declenche le meme evenement',
+        true, depot.includes("dispatchEvent(new Event('change'"));
+
+    /* ⚠️ CE QUI N'EST PAS UN CLASSEUR EST REFUSE, ET LE REFUS SE DIT. */
+    verifier('un fichier qui n’est pas un classeur est refuse avec un mot',
+        true, depot.includes("t('dropRefus'"));
+}
+
+verifier('le depot est branche a la construction de la fenetre',
+    true, source.includes('brancherDepot(ov)'));
+
+// ---------------------------------------------------------------------------
+// Aucune classe CSS orpheline
+// ---------------------------------------------------------------------------
+/* ⭐⭐⭐⭐ UN STYLE SANS ELEMENT A L'AIR FAIT, ET NE L'EST PAS. La zone de depot
+   avait son CSS complet — bordure pointillee, survol, etat de survol du
+   fichier — et rien ne la posait : elle etait dans la maquette, validee, puis
+   oubliee au branchement. C'est le pire des oublis, parce qu'il se lit comme
+   un travail acheve. */
+const ACCENT = String.fromCharCode(96);
+const dCss = source.indexOf('const CSS = ' + ACCENT);
+const fCss = source.indexOf('\n    ' + ACCENT + ';', dCss);
+const css = source.slice(dCss, fCss);
+const apres = source.slice(fCss);
+
+const classesCss = new Set(
+    [...css.matchAll(/\.(peu-[\w-]+)/g)].map((m) => m[1])
+);
+/* ⚠️⚠️ ON CHERCHE LA CLASSE COMME SOUS-CHAINE, et non dans un `class="…"`
+   ferme : la moitie d entre elles se construisent par concatenation —
+   `class="peu-cell-old` + une variante + le guillemet plus loin. Un motif qui
+   exige l attribut complet en rate les trois quarts et accuse dix-sept classes
+   qui sont toutes posees. Plus permissif ici vaut mieux que criant au loup. */
+const estPosee = (c) => apres.includes(c);
+
+/* ⚠️ Les classes d'etat se construisent par concatenation (`peu-row-` + etat) :
+   on les considere posees des que le prefixe l'est. */
+/* ⚠️ LES CLASSES BATIES PAR CONCATENATION ne se trouvent pas telles quelles :
+   `'peu-row-' + etat`, `'peu-pastille-' + classe`. On accepte donc une classe
+   dont le PREFIXE est pose — sans quoi le controle accuserait dix regles
+   parfaitement employees. */
+const prefixesBatis = ['peu-row-', 'peu-pastille-'];
+const orphelines = [...classesCss].filter((c) => {
+    if (estPosee(c)) return false;
+    /* ⚠️ Le prefixe est SUIVI du guillemet fermant, mais precede de ce qu on
+       veut : `class = 'peu-ligne peu-row-' + etat`. On cherche donc la fin de
+       la chaine, pas son debut. */
+    return !prefixesBatis.some((p) => c.startsWith(p) && apres.includes(p + "'"));
+});
+
+verifier('aucune classe stylee que rien ne pose', [], orphelines.sort());
+// ---------------------------------------------------------------------------
 console.log(echecs.length ? `\n${echecs.map((e) => `  ✖ ${e}`).join('\n')}\n` : '');
 console.log(`=== ${reussis} réussis, ${echecs.length} échec${echecs.length > 1 ? 's' : ''} ===`);
 process.exit(echecs.length ? 1 : 0);

@@ -78,6 +78,10 @@
                 guideOnglet:'Choisissez l’onglet à poser.',
                 guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
                 colSelect:'Poser', colEtat:'État',
+                dropLigne1:'📄 Déposez un classeur ici',
+                dropLigne2:'ou cliquez pour le choisir',
+                dropTitre:'Déposez un fichier .xlsx n’importe où sur cette fenêtre, ou cliquez pour le choisir',
+                dropRefus:(nom)=>`« ${nom} » n’est pas un classeur Excel : seuls les fichiers .xlsx et .xls se chargent ici.`,
                 sbOuvrir:'Afficher la fenêtre', sbOuvrirTitre:'Ouvrir la fenêtre de travail — c’est là qu’on charge un classeur et qu’on relit avant d’appliquer',
                 sbReglages:'Réglages', sbReglagesNote:'Langue, densité d’affichage, comportement de la carte — à venir. L’emplacement est réservé.',
                 cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
@@ -160,6 +164,10 @@
                 guideOnglet:'Choose the sheet to apply.',
                 guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
                 colSelect:'Apply', colEtat:'State',
+                dropLigne1:'📄 Drop a workbook here',
+                dropLigne2:'or click to pick one',
+                dropTitre:'Drop an .xlsx file anywhere on this window, or click to pick one',
+                dropRefus:(nom)=>`« ${nom} » is not an Excel workbook: only .xlsx and .xls files load here.`,
                 sbOuvrir:'Show the window', sbOuvrirTitre:'Open the work window — that is where you load a workbook and review before applying',
                 sbReglages:'Settings', sbReglagesNote:'Language, display density, map behaviour — to come. The place is reserved.',
                 cancelTitle:'Stop: what is already loaded is kept',
@@ -407,15 +415,7 @@
 .peu-strip-info { color: var(--peu-text2, #566372); }
 
 #peu-body { flex: 1; overflow-y: auto; min-height: 0; }
-.peu-scroll { overflow: visible; }
 
-.peu-section {
-    font-size: .833em; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--peu-blue, #2C6ED5);
-    border-bottom: 1px solid var(--peu-border, #dde3ea);
-    margin: 0; padding: 9px 12px 5px;
-    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
 
 /* ----------------------------------------------------------------------
    LES BOUTONS
@@ -437,25 +437,21 @@
 }
 .peu-btn:active:not(:disabled) { transform: scale(.97); }
 .peu-btn-primary { background: var(--peu-blue, #2C6ED5);   color: #fff; }
-.peu-btn-success { background: var(--peu-green, #43a047);  color: #fff; }
-.peu-btn-danger  { background: var(--peu-red, #e53935);    color: #fff; }
 .peu-btn-neutral { background: var(--peu-border, #dde3ea); color: var(--peu-text, #2d3748); }
 .peu-btn-primary:hover:not(:disabled) { background: var(--peu-blue-dk, #1a4fa0); color: #fff; }
-.peu-btn-success:hover:not(:disabled),
-.peu-btn-danger:hover:not(:disabled)  { filter: brightness(1.1); }
 .peu-btn-neutral:hover:not(:disabled) { filter: brightness(.95); }
 .peu-btn:disabled { opacity: .45; cursor: not-allowed; }
 .peu-btn-sm { padding: .25em .75em; font-size: .833em; min-height: 24px; }
 .peu-btn-full { width: 100%; }
 
 /* Bouton discret de ligne (recentrage). Pas de fond, pas de bordure. */
-.peu-btn-center, .peu-btn-retry {
+.peu-btn-center {
     background: transparent; border: none; padding: 1px 3px; margin: 0;
     cursor: pointer; font-size: 1.25em; line-height: 1;
     height: auto; min-height: 0; transition: transform .1s;
 }
-.peu-btn-center:hover, .peu-btn-retry:hover { transform: scale(1.18); }
-.peu-btn-center:active, .peu-btn-retry:active { transform: scale(.9); }
+.peu-btn-center:hover { transform: scale(1.18); }
+.peu-btn-center:active { transform: scale(.9); }
 
 /* ----------------------------------------------------------------------
    CHAMPS
@@ -491,12 +487,6 @@
 
 .peu-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
 .peu-search { flex: 1; min-width: 140px; }
-.peu-search-clear {
-    background: none; border: none; cursor: pointer; color: var(--peu-grey, #9e9e9e);
-    font-size: 1.1em; padding: 0 2px; line-height: 1; display: none;
-    height: auto; min-height: 0;
-}
-.peu-search-clear:hover { color: var(--peu-red, #e53935); }
 .peu-search-count { font-size: .833em; color: var(--peu-text2, #566372); white-space: nowrap; }
 
 /* ----------------------------------------------------------------------
@@ -566,18 +556,31 @@
 .peu-badge-sae   { background: #fff8e1; color: #f57f17; cursor: help; }
 .peu-badge-off   { background: #eceff1; color: #37474f; cursor: help; }
 .peu-badge-ok    { background: #eceff1; color: #607d8b; cursor: help; }
-.peu-lock-badge, .peu-diff-dot, .peu-unloaded-icon { display: none; }
 
 /* Les champs du lot D2, sous la ligne du lieu. */
 .peu-comp > td { background: rgba(0,0,0,.015); padding-top: 0; }
-.peu-comp-titre {
-    font-size: .833em; text-transform: uppercase; letter-spacing: .05em;
-    color: var(--peu-text2, #566372); font-weight: 700; margin-bottom: 3px;
+/* ⚠️⚠️ CES PASTILLES AVAIENT DISPARU A LA REECRITURE DE LA FEUILLE, et elles ne
+   sont PAS decoratives : chaque teinte dit ce que le script fera de la valeur.
+   Sans elles, les champs du lot D2 s affichaient tous pareil — on ne voyait plus
+   la difference entre ce qui sera ecrit, ce qui est seulement montre, ce qui est
+   refuse et ce qui sera RETIRE. */
+.peu-plus {
+    display: flex; flex-wrap: wrap; gap: 3px 5px; align-items: baseline;
+    margin-top: 4px; font-size: .875em; line-height: 1.5; color: var(--peu-text2, #566372);
 }
-.peu-comp-liste { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: .909em; color: var(--peu-text2, #566372); }
-.peu-comp-liste b { color: var(--peu-text, #2d3748); font-weight: 600; }
-.peu-pastille, .peu-pastille-titre, .peu-plus { font-size: .909em; }
-.peu-plus { color: var(--peu-text2, #566372); }
+.peu-pastille {
+    border-radius: 3px; padding: 1px 6px; white-space: nowrap;
+    border: 1px solid transparent;
+}
+/* Le vert n est PAS decoratif : il dit « le script ecrira ceci ». */
+.peu-pastille-pose   { background: #eaf6ec; border-color: #bfe0c6; color: #1e6b2f; }
+/* Le gris dit « a toi de le poser » — ni succes, ni alerte. */
+.peu-pastille-montre { background: #f2f2f2; border-color: #ddd;    color: #555; }
+.peu-pastille-refus  { background: #fdeceb; border-color: #f5c6c2; color: #a3281e; }
+/* L orange dit « j enleve » : ni un succes, ni une erreur — une perte. */
+.peu-pastille-perte  { background: #fdf3e3; border-color: #f0d3a0; color: #8a5a00; }
+.peu-pastille b { font-weight: 600; }
+.peu-pastille-titre { color: var(--peu-text2, #566372); padding: 1px 0; font-size: .875em; }
 
 /* ----------------------------------------------------------------------
    LE PIED D'ACTION — hors defilement.
@@ -592,14 +595,6 @@
 }
 .peu-footer-help { font-size: .833em; color: var(--peu-text2, #566372); line-height: 1.4; flex: 1; min-width: 150px; }
 .peu-footer-actions { display: flex; gap: 6px; align-items: center; margin-inline-start: auto; }
-.peu-footer-error {
-    background: #fff0f0; border: 1px solid var(--peu-red, #e53935); color: #8a1c14;
-    border-radius: var(--peu-radius, 8px); padding: 6px 9px; margin: 8px 12px;
-    font-size: .833em; line-height: 1.45;
-}
-.peu-footer-error .peu-error-title { font-weight: 700; display: block; margin-bottom: 3px; }
-.peu-footer-error ul { margin: 3px 0 0; padding-inline-start: 18px; }
-.peu-footer-error ul li { margin-bottom: 2px; }
 .peu-alert ul { margin: 3px 0 0; padding-inline-start: 16px; }
 .peu-alert ul li { margin-bottom: 2px; }
 .peu-error-title { font-weight: 700; display: block; margin-bottom: 4px; }
@@ -610,7 +605,6 @@
    ---------------------------------------------------------------------- */
 .peu-alert  { border-radius: var(--peu-radius, 8px); padding: 7px 10px; margin: 8px 12px;
               font-size: .833em; line-height: 1.5; }
-.peu-alert-info { background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1; }
 .peu-alert-ok   { background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
 .peu-alert-warn { background: #fff3e0; border: 1px solid #ffb74d; color: #a34a00; }
 
@@ -684,8 +678,6 @@
 .peu-hist-name { font-weight: 700; color: var(--peu-blue, #2C6ED5);
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .peu-hist-meta { color: var(--peu-text2, #566372); margin-top: 1px; }
-.peu-hist-meta.peu-jamais { color: var(--peu-orange, #f57c00); font-weight: 600; }
-.peu-drag-hint { font-size: .833em; color: var(--peu-text2, #566372); }
 
 /* La poignee de redimensionnement, en bas a droite. */
 #peu-resize {
@@ -1703,7 +1695,7 @@
             + '</div>'
             + '<div id="peu-strip">'
             +   '<span class="peu-strip-dot"></span>'
-            +   '<span class="peu-strip-info" id="peu-strip-texte">' + esc(t('noFile')) + '</span>'
+            +   '<span class="peu-strip-file" id="peu-strip-texte">' + esc(t('noFile')) + '</span>'
             +   '<span class="peu-strip-sep" id="peu-strip-sep1" hidden>&middot;</span>'
             +   '<select class="peu-select" id="peu-select-onglet" hidden title="' + esc(t('selectSheet')) + '"></select>'
             +   '<span class="peu-strip-sep" id="peu-strip-sep2" hidden>&middot;</span>'
@@ -2148,6 +2140,7 @@
             (evt) => ov.addEventListener(evt, (e) => e.stopPropagation())
         );
 
+        brancherDepot(ov);
         rendreDeplacable(ov, ov.querySelector('#peu-header'));
         rendreRedimensionnable(ov, ov.querySelector('#peu-resize'));
 
@@ -2591,11 +2584,87 @@
      */
     function montrerGuide(cle, suite, extra) {
         const corps = corpsFenetre();
+        /* ⭐ LA ZONE DE DEPOT N'APPARAIT QUE QUAND C'EST UN FICHIER QU'ON ATTEND.
+           Proposee au moment de choisir un onglet, elle inviterait a un geste qui
+           ne mene nulle part. */
+        const attendUnFichier = cle === 'guideFichier';
+
         corps.innerHTML = '<div class="peu-guide"><span class="peu-guide-n">1</span>'
             + '<div><b>' + esc(t(cle)) + '</b>'
             + '<div class="peu-guide-suite">' + esc(t(suite)) + '</div></div></div>'
+            + (attendUnFichier
+                ? '<div class="peu-dropzone" id="peu-dropzone" title="' + esc(t('dropTitre')) + '">'
+                    + esc(t('dropLigne1')) + '<br><span style="font-size:.833em">'
+                    + esc(t('dropLigne2')) + '</span></div>'
+                : '')
             + (extra || '');
+
+        const zone = corps.querySelector('#peu-dropzone');
+        if (zone) zone.addEventListener('click', () => { if (_peuFileInput) _peuFileInput.click(); });
         majPied();
+    }
+
+    /**
+     * LE CLASSEUR SE DEPOSE SUR LA FENETRE, PAS SEULEMENT SUR LA ZONE.
+     *
+     * ⭐⭐⭐ VISER UNE ZONE DE 60 PIXELS AVEC UN FICHIER AU BOUT DU CURSEUR EST UN
+     *    EXERCICE. Toute la fenetre accepte donc le depot — la zone dessinee dit
+     *    OU l'on peut lacher, elle ne dit pas que c'est le seul endroit.
+     *
+     * ⚠️⚠️ ET IL PASSE PAR LE MEME CHAMP DE FICHIER. Le chemin de lecture valide
+     *    vingt regles, tient un rapport d'anomalies et alimente l'historique :
+     *    un second chemin pour un fichier depose divergerait du premier, et il le
+     *    ferait en silence. On remplit donc le champ, et l'on declenche son
+     *    evenement — c'est le meme code qui lit, quelle que soit la main.
+     *
+     * ⚠️ `preventDefault` SUR dragover ET SUR drop : sans le premier, le navigateur
+     *    refuse le depot ; sans le second, il OUVRE le classeur a la place de la
+     *    carte, et l'on perd sa session d'edition.
+     */
+    function brancherDepot(ov) {
+        const surviens = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        ['dragenter', 'dragover'].forEach((evt) => ov.addEventListener(evt, (e) => {
+            surviens(e);
+            const zone = ov.querySelector('#peu-dropzone');
+            if (zone) zone.classList.add('peu-drop-hover');
+        }));
+
+        ['dragleave', 'dragend'].forEach((evt) => ov.addEventListener(evt, (e) => {
+            surviens(e);
+            /* ⚠️ On ne retire la marque QUE si le curseur a vraiment quitte la
+               fenetre : `dragleave` se declenche aussi en passant d'un enfant a
+               l'autre, et la zone clignoterait tout du long. */
+            if (e.relatedTarget && ov.contains(e.relatedTarget)) return;
+            const zone = ov.querySelector('#peu-dropzone');
+            if (zone) zone.classList.remove('peu-drop-hover');
+        }));
+
+        ov.addEventListener('drop', (e) => {
+            surviens(e);
+            const zone = ov.querySelector('#peu-dropzone');
+            if (zone) zone.classList.remove('peu-drop-hover');
+
+            const fichier = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!fichier || !_peuFileInput) return;
+
+            /* ⚠️ ON REFUSE ICI CE QUI N'EST PAS UN CLASSEUR, et on le DIT : laisser
+               le lecteur s'en charger donnerait une erreur de format la ou une
+               phrase suffit. */
+            if (!/\.xlsx?$/i.test(fichier.name)) {
+                ouvrirOverlay();
+                showValidationReport([t('dropRefus', fichier.name)]);
+                return;
+            }
+
+            const dt = new DataTransfer();
+            dt.items.add(fichier);
+            _peuFileInput.files = dt.files;
+            _peuFileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        });
     }
 
     /**
