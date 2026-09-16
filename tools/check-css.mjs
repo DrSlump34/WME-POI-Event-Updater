@@ -53,6 +53,15 @@ if (ouvrantes !== fermantes) {
     soucis.push(`${ouvrantes} accolade(s) ouvrante(s) pour ${fermantes} fermante(s)`);
 }
 
+/* ⚠️⚠️ L ATTRIBUT hidden NE RESISTE PAS A UN display EXPLICITE. Nos composants
+   sont en display:inline-flex ou flex : pose sur eux, `hidden` ne masque RIEN.
+   Le bouton du rapport s affichait ainsi alors qu aucun apercu n existait —
+   et un bouton qui parait actif sans rien a faire apprend a cliquer sans
+   regarder. La regle qui retablit hidden doit donc exister. */
+if (!/\[hidden\][^{]*\{[^}]*display:\s*none\s*!important/.test(css)) {
+    soucis.push('aucune regle ne retablit [hidden] : un display explicite le rend inoperant');
+}
+
 /* 4. Chaque variable employee doit etre declaree, et porter son repli — une
       variable manquante ne colore pas en rouge, elle ne colore PAS DU TOUT. */
 const declarees = new Set([...css.matchAll(/^\s*(--peu-[\w-]+)\s*:/gm)].map((m) => m[1]));

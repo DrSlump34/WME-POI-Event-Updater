@@ -107,7 +107,6 @@
                 btnApply:'Appliquer', btnClose:'Fermer',
                 btnDiffActive:'≠ Diff', btnDiffAll:'≡ Tout', btnUpToDate:'✅ À jour',
                 tooltipDiffOn:'Afficher tous les POI', tooltipDiffOff:'Afficher uniquement les POI modifiés',
-                footerHelp:'Décochez les lignes à exclure, éditez si besoin, puis cliquez ✔ pour appliquer.',
                 footerSae:'⚠️ = Suggest an Edit (lock supérieur à votre niveau).',
                 footerHard:'🔒 = Verrou L7 staff, non modifiable.',
                 emptyMsg:'✅ Aucune modification à apporter pour cet événement.',
@@ -193,7 +192,6 @@
                 btnApply:'Apply', btnClose:'Close',
                 btnDiffActive:'≠ Diff', btnDiffAll:'≡ All', btnUpToDate:'✅ Up to date',
                 tooltipDiffOn:'Show all POIs', tooltipDiffOff:'Show only modified POIs',
-                footerHelp:'Uncheck rows to exclude, edit if needed, then click ✔ to apply.',
                 footerSae:'⚠️ = Suggest an Edit (lock level above yours).',
                 footerHard:'🔒 = L7 staff lock, cannot be edited.',
                 emptyMsg:'✅ No changes to apply for this event.',
@@ -325,6 +323,13 @@
    panneau lateral, qui n'offre que 315 px utiles. */
 #peu-overlay, #peu-overlay *, .peu-container, .peu-container *,
 #peu-fab-wrap, #peu-fab-wrap * { box-sizing: border-box; }
+
+/* ⚠️⚠️ L ATTRIBUT hidden NE RESISTE PAS A UN display EXPLICITE. Nos boutons
+   sont en display:inline-flex : pose sur eux, hidden ne masque RIEN, et le
+   bouton du rapport s affichait alors qu aucun apercu n existait. Le piege
+   vaut pour tout composant a qui l on donne un display — c est-a-dire presque
+   tous. */
+#peu-overlay [hidden], .peu-container [hidden] { display: none !important; }
 
 /* ----------------------------------------------------------------------
    LE BOUTON DE CARTE
@@ -1645,7 +1650,7 @@
         if (boiteSansEtendue(u)) {
             W.map.setCenter(
                 new OpenLayers.LonLat((u.left + u.right) / 2, (u.bottom + u.top) / 2),
-                Math.max(W.map.getZoom(), 17)
+                Math.min(Math.max(W.map.getZoom(), 17), 19)
             );
 
             return true;
@@ -1654,7 +1659,14 @@
         const etendue = new OpenLayers.Bounds(u.left, u.bottom, u.right, u.top);
         if (typeof W.map.zoomToExtent === 'function') {
             W.map.zoomToExtent(etendue);
-            if (W.map.getZoom() < 12) W.map.setCenter(etendue.getCenterLonLat(), 12);
+            /* ⚠️⚠️ UN PLAFOND, ET PAS SEULEMENT UN PLANCHER. Cadrer sur UN SEUL lieu
+               colle la carte au sol : l'echelle tombe a deux metres, on ne voit
+               plus ni la rue, ni les lieux voisins, ni ou l'on est. Le plancher
+               protege des lieux disperses, le plafond du lieu unique — et le
+               second se rencontre bien plus souvent que le premier. */
+            const z = W.map.getZoom();
+            if (z < 12) W.map.setCenter(etendue.getCenterLonLat(), 12);
+            else if (z > 19) W.map.setCenter(etendue.getCenterLonLat(), 19);
 
             return true;
         }
@@ -2162,8 +2174,12 @@
             if (_peuFileInput) _peuFileInput.click();
         });
 
+        /* ⚠️ ON NE RELANCE PAS UN BALAYAGE POUR RIEN : rechoisir l'onglet deja
+           affiche relancerait la lecture de tous les lieux sans rien changer. */
         ov.querySelector('#peu-select-onglet').addEventListener('change', (e) => {
-            if (e.target.value) ouvrirApercu(e.target.value);
+            if (e.target.value && (!_apercu || _apercu.eventName !== e.target.value)) {
+                ouvrirApercu(e.target.value);
+            }
         });
         ov.querySelector('#peu-btn-replier').addEventListener('click', () => {
             const replie = ov.classList.toggle('peu-replie');
@@ -2563,7 +2579,18 @@
         compte.textContent = t('poiCount', nbPoi || 0);
 
         majFab();
-        if (aDesOnglets) montrerGuide('guideOnglet', 'guideOngletSuite');
+
+        /* ⭐⭐⭐⭐ LE PREMIER ONGLET SE CHARGE TOUT SEUL, parce que le menu l'affiche
+           DEJA. Remplir un `<select>` par programme ne declenche pas `change` :
+           l'ecran montrait « Hors Evenement » en tete du menu tout en demandant
+           de choisir un onglet, et il fallait en prendre un autre puis revenir
+           au premier pour que quelque chose se passe. Deux choses se
+           contredisaient a l'ecran, et c'est celle qui ne fait rien qui gagnait.
+
+           ⚠️ CE N'EST PAS UN RACCOURCI, C'EST LA SUITE DU GESTE : on a choisi un
+              classeur pour le regarder. Le balayage qui suit est interruptible,
+              et le menu reste la pour changer d'onglet. */
+        if (aDesOnglets) ouvrirApercu(onglets[0]);
     }
 
     /** Le corps de la fenetre, vide. */
@@ -2852,6 +2879,10 @@
         cadrerSurLesLieux(venueMap);
 
         _apercu = { eventName: eventName, pois: pois, venueMap: venueMap, resultats: null };
+        /* ⚠️ LE MENU DIT CE QUI EST OUVERT. Ouvert par un autre chemin que lui,
+           il afficherait autre chose que ce que le tableau montre. */
+        const menu = document.getElementById('peu-select-onglet');
+        if (menu && menu.value !== eventName) menu.value = eventName;
         rendreTableau();
     }
 
