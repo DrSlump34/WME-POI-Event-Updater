@@ -28,6 +28,14 @@
 
     const scriptId   = 'poi-event-updater';
     const HISTORY_KEY = 'peu_file_history'; // clé localStorage
+    const GEO_KEY     = 'peu_ui_geom';      // position et taille de la fenêtre
+    /* ⚠️ LA VERSION EST LUE DANS L’EN-TÊTE DU SCRIPT, jamais recopiée : deux
+       exemplaires d’un numéro de version divergent le jour où l’on bumpe. */
+    /* ⚠️⚠️ `typeof` ET NON UN SIMPLE TEST : avec `@grant none`, rien ne garantit
+       que `GM_info` existe, et une ReferenceError ici ne casserait pas une
+       ligne — elle tuerait le script entier au chargement, sans un mot. */
+    const PEU_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version)
+        ? GM_info.script.version : '?';
     const HISTORY_MAX = 5;
     const GEOM_KEY = 'peu_overlay_geom';    // taille + position mémorisées de l'overlay
     // Icône de l'onglet : pin de localisation (= POI), détouré, affiché à la place du nom
@@ -1696,6 +1704,335 @@
     }
     // ==== /banc:coque ====
 
+    // ==== banc:geometrie ====
+    // Extrait tel quel par tools/banc-fenetre.mjs : du calcul, pas de DOM.
+
+    /**
+     * RAMENE UNE FENETRE DANS LES BORNES DE LA CARTE.
+     *
+     * ⭐⭐⭐ ON MESURE, ON NE SUPPOSE PAS. Un `calc(100vh - 110px)` suppose la
+     *    hauteur du bandeau de WME, qui change avec la version, la langue et la
+     *    presence d'un autre script. Les bornes viennent donc de la carte
+     *    elle-meme, relevees dans le DOM, et ce calcul-ci ne fait que les
+     *    respecter.
+     *
+     * ⚠️ UNE POSITION HORS BORNES EST REFUSEE, PAS RABOTEE quand elle vient
+     *    d'une session precedente : l'ecran a pu changer de taille, et rabattre
+     *    une fenetre dans un coin sans le dire donne l'impression qu'elle a
+     *    disparu. Ici on rabat — mais l'appelant, lui, sait distinguer les deux
+     *    cas par `tenait`.
+     */
+    function bornerFenetre(geo, bornes) {
+        /* ⚠️⚠️ LE PLANCHER NE PASSE JAMAIS DEVANT LA CARTE. Un plancher pose en
+           dernier (`Math.max(280, …)`) l'emporte sur la mesure et fait SORTIR la
+           fenetre d'une carte etroite — donc son pied, donc le bouton qui
+           applique. Le plancher protege d'une fenetre reduite a rien par la
+           poignee ; il ne decide pas de la place disponible. */
+        const dispoL = bornes.droite - bornes.gauche;
+        const dispoH = bornes.bas - bornes.haut;
+        const largeur = Math.min(Math.max(Math.min(geo.w, dispoL), 280), dispoL);
+        const hauteur = Math.min(Math.max(Math.min(geo.h, dispoH), 120), dispoH);
+        const x = Math.max(bornes.gauche, Math.min(geo.x, bornes.droite - largeur));
+        const y = Math.max(bornes.haut,   Math.min(geo.y, bornes.bas - hauteur));
+
+        return {
+            x: x, y: y, w: largeur, h: hauteur,
+            tenait: x === geo.x && y === geo.y && largeur === geo.w && hauteur === geo.h,
+        };
+    }
+
+    /**
+     * OU SE POSE LA FENETRE QUAND ELLE N'A PAS DE POSITION MEMORISEE.
+     *
+     * ⚠️ A GAUCHE DES BOUTONS DE CARTE, jamais dessus : c'est la colonne ou vit
+     *    le bouton qui ouvre cette fenetre, et le masquer reviendrait a cacher
+     *    la poignee de la porte qu'on vient de franchir.
+     */
+    function positionParDefaut(bornes, largeur) {
+        const l = Math.min(largeur, bornes.droite - bornes.gauche);
+
+        return {
+            x: Math.max(bornes.gauche, bornes.droite - l),
+            y: bornes.haut,
+            w: l,
+            h: bornes.bas - bornes.haut,
+        };
+    }
+    // ==== /banc:geometrie ====
+
+    /* ----------------------------------------------------------------------
+       LE BOUTON DE CARTE
+       ---------------------------------------------------------------------- */
+
+    /** Le conteneur natif des boutons de carte, ou rien s'il n'est pas encore la. */
+    function conteneurBoutonsCarte() {
+        return document.querySelector('.overlay-buttons-container.top')
+            || document.querySelector('.overlay-buttons-container');
+    }
+
+    /**
+     * POSE LE BOUTON DANS LA COLONNE DES BOUTONS DE CARTE.
+     *
+     * ⭐⭐⭐⭐ DOCKE, JAMAIS EN position:fixed. Docke, il suit le zoom et la
+     *    resolution, et partage le contexte d'empilement des boutons natifs —
+     *    donc il passe DERRIERE le panneau des calques comme eux. En fixed, il
+     *    passerait par-dessus, et il faudrait une bagarre de z-index sans fin.
+     *
+     * ⚠️ IL EST LE SEUL ACCES AU SCRIPT : s'il disparait, tout disparait. WME
+     *    re-rend cette colonne, et le bouton part avec. D'ou le filet de
+     *    `installerFab`.
+     */
+    function poserFab() {
+        const cont = conteneurBoutonsCarte();
+        if (!cont) return false;
+        if (cont.querySelector('#peu-fab-wrap')) return true;
+
+        // Un exemplaire detache par un re-rendu precedent ne doit pas rester.
+        const vieux = document.querySelector('#peu-fab-wrap');
+        if (vieux) vieux.remove();
+
+        const wrap = document.createElement('div');
+        wrap.id = 'peu-fab-wrap';
+        wrap.innerHTML = '<button type="button" id="peu-fab-btn" title="' + esc(t('fabTitle')) + '">'
+            + '<img src="' + TAB_ICON + '" alt="" width="22" height="22" style="display:block">'
+            + '<span class="peu-fab-badge" id="peu-fab-badge"></span>'
+            + '</button>';
+        cont.appendChild(wrap);
+        wrap.querySelector('button').addEventListener('click', basculerOverlay);
+        majFab();
+
+        return true;
+    }
+
+    /**
+     * ⚠️ UN INTERVALLE, ET NON UN MutationObserver. L'observateur a ete essaye
+     *    dans le script voisin : il ne reposait pas le bouton en direct et
+     *    coutait bien plus cher. Deux secondes suffisent — personne ne remarque
+     *    un bouton qui revient en deux secondes, tout le monde remarque un
+     *    bouton qui ne revient jamais.
+     */
+    function installerFab() {
+        poserFab();
+        setInterval(poserFab, 2000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) poserFab(); });
+    }
+
+    /** Le bouton dit ce qu'il fera au clic, et ce qui est charge. */
+    function majFab() {
+        const btn = document.getElementById('peu-fab-btn');
+        if (!btn) return;
+        const ouvert = !!document.querySelector('#peu-overlay.peu-open');
+        btn.classList.toggle('peu-fab-on', ouvert);
+        btn.title = t(ouvert ? 'fabTitleOn' : 'fabTitle');
+
+        const badge = document.getElementById('peu-fab-badge');
+        const nb = (poiData || []).length;
+        btn.classList.toggle('peu-has-file', nb > 0);
+        if (badge) badge.textContent = nb ? String(nb) : '';
+    }
+
+    /* ----------------------------------------------------------------------
+       LA FENETRE
+       ---------------------------------------------------------------------- */
+
+    /**
+     * LES BORNES DE LA CARTE, MESUREES.
+     *
+     * ⚠️ TROIS MESURES, ET AUCUNE SUPPOSITION : le bord de la carte, son pied
+     *    de page, et la colonne des boutons. Un repli prudent si l'un manque —
+     *    mieux vaut une fenetre un peu large qu'une fenetre introuvable.
+     */
+    function bornesCarte() {
+        const carte = document.getElementById('WazeMap');
+        const pied  = document.querySelector('.wz-map-ol-footer');
+        const btns  = conteneurBoutonsCarte();
+        const r = carte ? carte.getBoundingClientRect() : { left: 0, top: 40, right: window.innerWidth, bottom: window.innerHeight };
+        const rb = btns ? btns.getBoundingClientRect() : null;
+
+        return {
+            gauche: Math.round(r.left) + 6,
+            haut:   Math.round(r.top) + 6,
+            droite: Math.round(rb ? rb.left - 8 : r.right - 8),
+            bas:    Math.round(pied ? pied.getBoundingClientRect().top - 6 : r.bottom - 6),
+        };
+    }
+
+    /** La geometrie mise de cote, ou rien tant que l'editeur n'a rien touche. */
+    function lireGeometrie() {
+        try {
+            const brut = localStorage.getItem(GEO_KEY);
+            const g = brut ? JSON.parse(brut) : null;
+
+            return g && ['x', 'y', 'w', 'h'].every(k => typeof g[k] === 'number' && isFinite(g[k])) ? g : null;
+        } catch (e) { return null; }
+    }
+
+    function ecrireGeometrie(g) {
+        try { localStorage.setItem(GEO_KEY, JSON.stringify(g)); } catch (e) { /* stockage refuse : tant pis */ }
+    }
+
+    /** Pose la fenetre : sa position memorisee si elle tient encore, sinon la place par defaut. */
+    function placerFenetre(ov) {
+        const bornes = bornesCarte();
+        const memo = lireGeometrie();
+        const voulu = memo || positionParDefaut(bornes, ov.offsetWidth || 820);
+        const g = bornerFenetre(voulu, bornes);
+
+        ov.style.left = g.x + 'px';
+        ov.style.top = g.y + 'px';
+        ov.style.right = 'auto';
+        ov.style.width = g.w + 'px';
+        ov.style.maxHeight = (bornes.bas - g.y) + 'px';
+        if (memo) ov.style.height = g.h + 'px';
+    }
+
+    /**
+     * DEPLACEMENT PAR L'EN-TETE.
+     *
+     * ⚠️ ON N'ENREGISTRE QU'AU RELACHEMENT, jamais a chaque mouvement : ecrire
+     *    dans le stockage soixante fois par seconde fait sauter le glissement.
+     * ⚠️ LE maxHeight SUIT LA POSITION, sinon descendre la fenetre fait sortir
+     *    son pied — celui qui porte le bouton qui applique — hors de l'ecran.
+     */
+    function rendreDeplacable(ov, poignee) {
+        let ox = 0, oy = 0, actif = false;
+
+        poignee.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button')) return;
+            actif = true;
+            const r = ov.getBoundingClientRect();
+            ox = e.clientX - r.left;
+            oy = e.clientY - r.top;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!actif) return;
+            const bornes = bornesCarte();
+            const g = bornerFenetre(
+                { x: e.clientX - ox, y: e.clientY - oy, w: ov.offsetWidth, h: ov.offsetHeight },
+                bornes
+            );
+            ov.style.left = g.x + 'px';
+            ov.style.top = g.y + 'px';
+            ov.style.right = 'auto';
+            ov.style.maxHeight = Math.max(120, bornes.bas - g.y) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!actif) return;
+            actif = false;
+            const r = ov.getBoundingClientRect();
+            ecrireGeometrie({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+        });
+
+        /* ⭐ DOUBLE-CLIC SUR L'EN-TETE : retour au dimensionnement automatique.
+           Une fenetre qu'on a malmenee doit pouvoir revenir sans qu'on cherche
+           ou est le reglage. */
+        poignee.addEventListener('dblclick', (e) => {
+            if (e.target.closest('button')) return;
+            try { localStorage.removeItem(GEO_KEY); } catch (err) { /* rien a oublier */ }
+            ov.style.height = '';
+            placerFenetre(ov);
+        });
+    }
+
+    /**
+     * REDIMENSIONNEMENT PAR LA POIGNEE DU COIN.
+     *
+     * ⚠️ LE COIN HAUT-GAUCHE SE FIGE AU PREMIER GESTE : tant que la fenetre est
+     *    posee par `right`, l'elargir la fait fuir sous le curseur.
+     */
+    function rendreRedimensionnable(ov, poignee) {
+        let actif = false;
+
+        poignee.addEventListener('mousedown', (e) => {
+            actif = true;
+            const r = ov.getBoundingClientRect();
+            ov.style.left = Math.round(r.left) + 'px';
+            ov.style.top = Math.round(r.top) + 'px';
+            ov.style.right = 'auto';
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!actif) return;
+            const r = ov.getBoundingClientRect();
+            const bornes = bornesCarte();
+            const g = bornerFenetre(
+                { x: r.left, y: r.top, w: e.clientX - r.left, h: e.clientY - r.top },
+                bornes
+            );
+            ov.style.width = g.w + 'px';
+            ov.style.height = g.h + 'px';
+            ov.style.maxHeight = Math.max(120, bornes.bas - g.y) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!actif) return;
+            actif = false;
+            const r = ov.getBoundingClientRect();
+            ecrireGeometrie({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+        });
+    }
+
+    /**
+     * CONSTRUIT LA FENETRE, UNE FOIS.
+     *
+     * ⚠️⚠️ LES EVENEMENTS DE LA SOURIS S'ARRETENT A LA FENETRE. Sans cela, la
+     *    molette zoome la carte pendant qu'on fait defiler la liste, et un clic
+     *    dans un champ desselectionne ce qu'on regardait.
+     */
+    function construireOverlay() {
+        let ov = document.getElementById('peu-overlay');
+        if (ov) return ov;
+
+        ov = document.createElement('div');
+        ov.id = 'peu-overlay';
+        ov.innerHTML = coqueOverlay(PEU_VERSION);
+        document.body.appendChild(ov);
+
+        ['wheel', 'mousedown', 'dblclick', 'contextmenu'].forEach(
+            (evt) => ov.addEventListener(evt, (e) => e.stopPropagation())
+        );
+
+        rendreDeplacable(ov, ov.querySelector('#peu-header'));
+        rendreRedimensionnable(ov, ov.querySelector('#peu-resize'));
+
+        ov.querySelector('#peu-btn-fermer').addEventListener('click', fermerOverlay);
+        ov.querySelector('#peu-btn-replier').addEventListener('click', () => {
+            const replie = ov.classList.toggle('peu-replie');
+            const b = ov.querySelector('#peu-btn-replier');
+            b.textContent = replie ? '+' : '-';
+            b.title = t(replie ? 'btnRestore' : 'btnReduce');
+        });
+
+        window.addEventListener('resize', () => {
+            if (ov.classList.contains('peu-open')) placerFenetre(ov);
+        });
+
+        return ov;
+    }
+
+    function ouvrirOverlay() {
+        const ov = construireOverlay();
+        ov.classList.add('peu-open');
+        placerFenetre(ov);
+        majFab();
+    }
+
+    function fermerOverlay() {
+        const ov = document.getElementById('peu-overlay');
+        if (ov) ov.classList.remove('peu-open');
+        majFab();
+    }
+
+    function basculerOverlay() {
+        const ov = document.getElementById('peu-overlay');
+        if (ov && ov.classList.contains('peu-open')) fermerOverlay(); else ouvrirOverlay();
+    }
+
     async function initScript() {
         _peuLang = detectLang();
         injectCSS();
@@ -1836,6 +2173,12 @@
         }
 
         tabPane.appendChild(container);
+
+        /* ⭐ LE BOUTON DE CARTE EST LE SEUL ACCÈS AU TRAVAIL. Le panneau latéral
+           garde les réglages et l’historique : il fait disparaître son contenu
+           dès qu’on sélectionne un objet sur la carte, on ne peut pas y
+           travailler. */
+        installerFab();
         renderHistory();
 
         function showValidationReport(warnings) {
