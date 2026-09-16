@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.50
+// @version      0.51
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -1201,8 +1201,9 @@
             // permalink cadre souvent la CARTE, pas le POI (ex. Fresnes 1 : venue à
             // 361 m du point du permalink). À zoom 19, un POI décalé tombe hors des
             // tuiles chargées et n'est jamais trouvé → « non chargé ». On suit le
-            // zoomLevel du permalink en le plafonnant à 17. La vue de l'utilisateur
-            // est restaurée après le préchargement (savedCenter/savedZoom).
+            // zoomLevel du permalink en le plafonnant à 17. Au terme du balayage,
+            // la carte est cadrée sur le PÉRIMÈTRE des lieux (cadrerSurLesLieux),
+            // et non ramenée là où elle était avant.
             let z = parseInt(new URL(permalink).searchParams.get('zoomLevel'), 10);
             if (isNaN(z)) z = 17;
             z = Math.max(16, Math.min(z, 17));
@@ -1228,6 +1229,49 @@
         });
     }
 
+    // ==== banc:carte ====
+    // Extrait tel quel par tools/banc-carte.mjs : aucune dépendance (ni DOM, ni carte).
+
+    /**
+     * L'ENGLOBANT DE PLUSIEURS BOÎTES — la vue d'ensemble d'un périmètre.
+     *
+     * ⚠️ UNE BOÎTE SANS COORDONNÉES FINIES EST ÉCARTÉE, pas propagée : un seul
+     *    `NaN` contaminerait `Math.min` et l'englobant entier deviendrait `NaN`,
+     *    ce qui cadrerait la carte nulle part — sans la moindre erreur.
+     *
+     * @param {{left:number,bottom:number,right:number,top:number}[]} boites
+     * @returns {?{left:number,bottom:number,right:number,top:number}}
+     */
+    function unionDesBoites(boites) {
+        const fini = (v) => typeof v === 'number' && isFinite(v);
+        const valides = (boites || []).filter(
+            (b) => b && fini(b.left) && fini(b.bottom) && fini(b.right) && fini(b.top)
+        );
+        if (!valides.length) return null;
+
+        return valides.reduce((a, b) => ({
+            left:   Math.min(a.left, b.left),
+            bottom: Math.min(a.bottom, b.bottom),
+            right:  Math.max(a.right, b.right),
+            top:    Math.max(a.top, b.top),
+        }), {
+            left: valides[0].left, bottom: valides[0].bottom,
+            right: valides[0].right, top: valides[0].top,
+        });
+    }
+
+    /**
+     * UNE BOÎTE SANS ÉTENDUE — un seul lieu, ou plusieurs confondus.
+     *
+     * ⚠️ ELLE NE SE CADRE PAS : demander à la carte de tenir dans un point la
+     *    pousse à son zoom maximal, et l'on se retrouve collé au sol sans rien
+     *    voir autour. On centre alors, en gardant un zoom lisible.
+     */
+    function boiteSansEtendue(boite) {
+        return !boite || (boite.right - boite.left === 0 && boite.top - boite.bottom === 0);
+    }
+    // ==== /banc:carte ====
+
     // Précharge tous les venues d'un événement en parcourant les permalinks
     // Appelle onProgress(loaded, total) à chaque étape
     // cancelRef.cancelled : si passé à true, interrompt proprement la boucle
@@ -1248,6 +1292,56 @@
         return results;
     }
 
+
+    /**
+     * CADRE LA CARTE SUR TOUS LES LIEUX DU FICHIER.
+     *
+     * ⭐⭐⭐⭐ LA VUE NE REVIENT PLUS EN ARRIÈRE. Le préchargement parcourt les
+     *    lieux un par un, puis la vue était remise là où elle était avant — on
+     *    voyait la carte balayer le terrain pour finir exactement au point de
+     *    départ, sans rien montrer de ce qu'on venait de charger. Ce qu'on veut
+     *    voir après un balayage, c'est le PÉRIMÈTRE qu'on vient de parcourir.
+     *
+     * ⚠️ SI LE CADRAGE ÉCHOUE, ON NE RESTAURE RIEN : la carte reste où le
+     *    balayage l'a laissée, c'est-à-dire sur le dernier lieu. C'est le
+     *    moindre des deux maux, et c'est encore un lieu du fichier.
+     *
+     * ⚠️ PLANCHER À ZOOM 12 : sous ce seuil WME décharge les objets, et l'on
+     *    perdrait les venues qu'on vient de précharger.
+     */
+    function cadrerSurLesLieux(venues) {
+        const boites = Object.keys(venues || {}).map((cle) => {
+            try {
+                const g = venues[cle] && venues[cle].getOLGeometry && venues[cle].getOLGeometry();
+                return g && g.getBounds ? g.getBounds() : null;
+            } catch (e) {
+                return null;
+            }
+        });
+
+        const u = unionDesBoites(boites);
+        if (!u) return false;
+
+        if (boiteSansEtendue(u)) {
+            W.map.setCenter(
+                new OpenLayers.LonLat((u.left + u.right) / 2, (u.bottom + u.top) / 2),
+                Math.max(W.map.getZoom(), 17)
+            );
+
+            return true;
+        }
+
+        const etendue = new OpenLayers.Bounds(u.left, u.bottom, u.right, u.top);
+        if (typeof W.map.zoomToExtent === 'function') {
+            W.map.zoomToExtent(etendue);
+            if (W.map.getZoom() < 12) W.map.setCenter(etendue.getCenterLonLat(), 12);
+
+            return true;
+        }
+        W.map.setCenter(etendue.getCenterLonLat());
+
+        return true;
+    }
 
     async function initScript() {
         _peuLang = detectLang();
@@ -1557,7 +1651,13 @@
         const pois = poiData.filter(p => p.event === eventName);
         if (!pois.length) return alert(t('noPoi'));
 
-        // Sauvegarder la position/zoom actuelle pour y revenir après
+        /* ⚠️⚠️ UN SEUL APERÇU À LA FOIS. Rien ne retirait le précédent : charger
+           un second fichier sans fermer le premier empilait deux tableaux, dont
+           celui du dessous restait atteignable au clavier — et l'on pouvait
+           appliquer depuis un aperçu qui ne décrivait plus le fichier chargé. */
+        document.querySelectorAll('.peu-overlay').forEach((o) => o.remove());
+
+        // Où l'on était avant le balayage — utile seulement si l'on ANNULE.
         const savedCenter = W.map.getCenter();
         const savedZoom   = W.map.getZoom();
 
@@ -1592,15 +1692,16 @@
             loadLabel.textContent = t('loadingPois', loaded, total);
         }, cancelRef);
 
-        // Si annulé : nettoyer et sortir sans ouvrir l'overlay
+        /* Si annulé : on revient d'où l'on vient. Annuler, c'est dire « pas
+           ça » — y compris le déplacement qu'on vient de subir. */
         if (cancelRef.cancelled) {
             W.map.setCenter(savedCenter, savedZoom);
             loadingDiv.remove();
             return;
         }
 
-        // Revenir à la position initiale
-        W.map.setCenter(savedCenter, savedZoom);
+        // ⭐ ON RESTE SUR LE PÉRIMÈTRE qu'on vient de parcourir.
+        cadrerSurLesLieux(venueMap);
         loadingDiv.remove();
 
         // --- Phase 2 : overlay tableau ---
@@ -2088,9 +2189,6 @@
             progressDiv.appendChild(applyBarBg);
             box.appendChild(progressDiv);
 
-            const savedCenter = W.map.getCenter();
-            const savedZoom   = W.map.getZoom();
-
             function showExportFooter(results) {
                 // Retirer le div de progression
                 if (progressDiv.parentNode) progressDiv.parentNode.removeChild(progressDiv);
@@ -2189,7 +2287,10 @@
                     applyLabel.textContent = t('applying', i+1, items.length);
                 }
 
-                W.map.setCenter(savedCenter, savedZoom);
+                // ⭐ ON RESTE SUR LE PÉRIMÈTRE, comme après le préchargement :
+                //    l'application déplace la carte de lieu en lieu, et revenir
+                //    au point de départ masquerait ce qu'on vient de poser.
+                cadrerSurLesLieux(venueMap);
 
                 if (failed.length === 0) {
                     await new Promise(r => setTimeout(r, 100));
