@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Maquette UX — WME POI Event Updater</title>
+<!--
+  ⚠️ CECI EST UNE MAQUETTE, PAS LE SCRIPT. Rien ici n'est branché : aucun clic
+     n'applique quoi que ce soit. Elle sert à ARBITRER la refonte avant d'y
+     toucher, parce qu'on ne refond pas une interface à l'aveugle.
+
+  ⭐ LES CONVENTIONS SONT CELLES DE WCT ET WNA, relevées dans leurs dépôts :
+     palette en variables, tout en em, boutons en pilule, en-tete degrade,
+     badges pastel, pied d'action hors defilement, focus visible partout.
+
+  UTILISATION : php -S 127.0.0.1:8130 -t .   puis  /tools/maquette-ux.html
+-->
+<style>
+/* --------------------------------------------------------------------------
+   LA PALETTE, EN VARIABLES — et TOUT EN `em` a partir de --peu-fs-base, pour
+   que l'interface entiere se redimensionne en changeant une seule valeur.
+   -------------------------------------------------------------------------- */
+:root {
+    --peu-blue:    #2C6ED5;   /* le bleu de WPEU, conserve : c'est son icone */
+    --peu-blue-dk: #1a4fa0;
+    --peu-green:   #43a047;
+    --peu-red:     #e53935;
+    --peu-orange:  #f57c00;
+    --peu-grey:    #9e9e9e;
+    --peu-warn:    #f9a825;
+    --peu-surface: #ffffff;
+    --peu-bg:      #f5f7f9;
+    --peu-border:  #dde3ea;
+    --peu-text:    #2d3748;
+    --peu-text2:   #566372;   /* 6,13:1 sur blanc — pas plus clair, WCAG */
+    --peu-radius:  8px;
+    --peu-shadow:  0 8px 32px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.12);
+    --peu-fs-base: 12px;
+}
+
+/* Le decor de la maquette, qui ne fait pas partie du script */
+body { margin: 0; padding: 24px; background: #6b7d8f; font-family: 'Rubik','Open Sans',sans-serif; }
+.legende { max-width: 700px; margin: 0 auto 18px; color: #fff; font-size: 13px; line-height: 1.5; }
+.legende h1 { font-size: 16px; margin: 0 0 6px; }
+.legende code { background: rgba(255,255,255,.18); padding: 1px 5px; border-radius: 3px; }
+.scene { display: flex; gap: 20px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+
+/* --------------------------------------------------------------------------
+   LE BOUTON FLOTTANT — docke dans le conteneur natif des boutons de carte,
+   jamais en position:fixed : il suit alors le zoom et l'empilement de WME.
+   -------------------------------------------------------------------------- */
+/* ⚠️ `order` PLUTOT QU'UNE BAGARRE DOM : le conteneur des boutons de carte est
+   une grille, et WCT reinsere le sien en dernier. WCT n'ordonne pas, WNA prend
+   99 — WPEU prend 100 et se range derriere les deux, dans un ordre stable. */
+.peu-fab-wrap {
+    width: 40px; height: 40px; border-radius: 50%; order: 100;
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; transition: box-shadow .15s;
+}
+.peu-fab-wrap:hover { box-shadow: 0 3px 10px rgba(0,0,0,.4); }
+.peu-fab-btn {
+    position: relative; background: none; border: none; padding: 0; margin: 0;
+    cursor: inherit; display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%; border-radius: 50%;
+}
+.peu-fab-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--peu-green); color: #fff;
+    border-radius: 50px; font-size: 10px; padding: 0 4px;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid #fff; pointer-events: none; white-space: nowrap;
+    font-family: 'Rubik','Open Sans',sans-serif; font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+   LA FENETRE
+   -------------------------------------------------------------------------- */
+.peu-overlay {
+    width: min(760px, calc(100vw - 48px));
+    background: var(--peu-surface); border-radius: 12px;
+    box-shadow: var(--peu-shadow); border: 1px solid var(--peu-border);
+    display: flex; flex-direction: column;
+    max-height: calc(100vh - 110px);
+    font-family: 'Rubik','Open Sans',sans-serif;
+    font-size: var(--peu-fs-base); color: var(--peu-text);
+    overflow: hidden;
+}
+.peu-hdr {
+    background: linear-gradient(135deg, #3d84e8 0%, var(--peu-blue-dk) 100%);
+    color: #fff; padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: move; user-select: none;
+    border-radius: 11px 11px 0 0; flex-shrink: 0;
+}
+.peu-hdr-title { font-size: 1.083em; font-weight: 700; display: flex; align-items: center; gap: 8px;
+                 min-width: 0; white-space: nowrap; overflow: hidden; }
+.peu-hdr-version { font-size: .833em; opacity: .6; flex-shrink: 0; }
+.peu-hdr-btns { display: flex; gap: 5px; flex-shrink: 0; }
+.peu-hdr-btn {
+    background: rgba(255,255,255,.18); border: none; color: #fff;
+    width: 24px; height: 24px; border-radius: 50%;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 1.083em; line-height: 1; transition: background .15s; padding: 0;
+}
+.peu-hdr-btn:hover { background: rgba(255,255,255,.35); }
+
+/* --------------------------------------------------------------------------
+   LE BANDEAU D'ETAT — ce qui est charge, en permanence sous les yeux.
+   -------------------------------------------------------------------------- */
+.peu-strip {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 7px 12px; background: var(--peu-bg);
+    border-bottom: 1px solid var(--peu-border); font-size: .917em;
+    flex-shrink: 0;
+}
+.peu-strip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--peu-grey); flex-shrink: 0; }
+.peu-strip.has-file .peu-strip-dot { background: var(--peu-green); }
+.peu-strip-file { font-weight: 700; color: var(--peu-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peu-strip-sep { color: var(--peu-border); }
+
+/* --------------------------------------------------------------------------
+   LE CORPS — zone defilante unique
+   -------------------------------------------------------------------------- */
+.peu-body { flex: 1; overflow-y: auto; min-height: 0; }
+.peu-section {
+    font-size: .833em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--peu-blue);
+    border-bottom: 1px solid var(--peu-border);
+    margin: 0; padding: 10px 12px 5px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.peu-section .peu-count { margin-left: auto; text-transform: none; letter-spacing: 0; color: var(--peu-text2); font-weight: 600; }
+
+/* La barre d'outils du tableau */
+.peu-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
+.peu-search {
+    flex: 1; min-width: 140px; padding: .25em .5em;
+    border: 1px solid var(--peu-border); border-radius: var(--peu-radius);
+    font-size: 1em; font-family: inherit; background: #fff; color: var(--peu-text);
+    box-sizing: border-box; transition: border-color .15s;
+}
+.peu-search:focus { outline: none; border-color: var(--peu-blue); box-shadow: 0 0 0 3px rgba(44,110,213,.15); }
+
+/* --------------------------------------------------------------------------
+   LES BOUTONS — pilule, 4 variantes, survol par brightness
+   -------------------------------------------------------------------------- */
+/* ⚠️⚠️ `height:auto` ET `min-height` : WME impose `height:32px` a TOUT `<button>`
+   par sa feuille globale. Sans cette parade, un libelle sur deux lignes est
+   coupe net — mesure dans WNA : 32 px affiches pour 41 px de contenu. */
+.peu-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: .417em 1em; border: none; border-radius: 50px;
+    font-family: inherit; font-size: .917em; font-weight: 600; cursor: pointer;
+    height: auto; min-height: 28px; line-height: 1.35;
+    transition: filter .15s, transform .1s; white-space: nowrap;
+    box-sizing: border-box;
+}
+.peu-btn:active { transform: scale(.97); }
+.peu-btn-primary { background: var(--peu-blue, #2C6ED5);   color: #fff; }
+.peu-btn-success { background: var(--peu-green, #43a047);  color: #fff; }
+.peu-btn-danger  { background: var(--peu-red, #e53935);    color: #fff; }
+.peu-btn-neutral { background: var(--peu-border, #dde3ea); color: var(--peu-text, #2d3748); }
+/* ⚠️ `:not(:disabled)` SUR CHAQUE VARIANTE, et pas seulement sur la base : sans
+   lui, `.peu-btn:hover` (plus specifique) l'emporte sur `.peu-btn-primary` et
+   repeint le fond en clair SOUS un texte reste blanc — bouton illisible, deux
+   fois en deux jours dans WNA. Regle generale : ne jamais poser un FOND sans
+   poser la COULEUR DE TEXTE qui va avec. */
+.peu-btn-primary:hover:not(:disabled) { background: var(--peu-blue-dk, #1a4fa0); color: #fff; }
+.peu-btn-success:hover:not(:disabled),
+.peu-btn-danger:hover:not(:disabled)  { filter: brightness(1.1); }
+.peu-btn-neutral:hover:not(:disabled) { filter: brightness(.95); }
+.peu-btn:disabled, .peu-btn-dis { opacity: .45; cursor: not-allowed; }
+.peu-btn-sm  { padding: .25em .75em; font-size: .833em; min-height: 24px; }
+
+/* --------------------------------------------------------------------------
+   LE TABLEAU — la case a cocher est en PREMIERE colonne, avec un intitule.
+   -------------------------------------------------------------------------- */
+.peu-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .958em; }
+.peu-table colgroup col:nth-child(1) { width: 46px; }
+.peu-table colgroup col:nth-child(2) { width: 58px; }
+.peu-table colgroup col:nth-child(3) { width: 40%; }
+.peu-table colgroup col:nth-child(4) { width: auto; }
+.peu-table thead th {
+    background: var(--peu-bg); color: var(--peu-blue); font-size: .833em; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .04em; padding: 7px 6px;
+    border-bottom: 2px solid var(--peu-blue); position: sticky; top: 0; z-index: 2;
+    text-align: start;
+}
+.peu-table thead th.center { text-align: center; }
+.peu-table thead th.sortable { cursor: pointer; user-select: none; }
+.peu-table thead th.sortable:hover { background: #e3ecfa; }
+.peu-table tbody tr.peu-row:nth-child(4n+1) { background: #fff; }
+.peu-table tbody tr.peu-row:nth-child(4n+3) { background: #f7f9fd; }
+.peu-table tbody tr.peu-row:hover { background: #e8f0fd; }
+.peu-table td { padding: 6px; border-bottom: 1px solid var(--peu-border); vertical-align: top; word-break: break-word; }
+.peu-table td.center { text-align: center; vertical-align: middle; }
+
+/* La case, dans son label, avec accent-color — convention WCT */
+.peu-check { display: inline-flex; align-items: center; cursor: pointer; }
+.peu-check input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--peu-blue); margin: 0; }
+
+.peu-cell-old {
+    color: #8a8a8a; font-size: .909em; line-height: 1.4; min-height: 14px;
+    margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.peu-cell-old.changed { color: var(--peu-red); text-decoration: line-through; text-decoration-color: rgba(229,57,53,.5); }
+.peu-input {
+    width: 100%; padding: .25em .417em; border: 1px solid var(--peu-border);
+    border-radius: var(--peu-radius); font-size: 1em; font-family: inherit;
+    background: #fff; color: var(--peu-text); box-sizing: border-box; transition: border-color .15s;
+}
+.peu-input:focus { outline: none; border-color: var(--peu-blue); box-shadow: 0 0 0 3px rgba(44,110,213,.15); }
+
+/* --------------------------------------------------------------------------
+   LES ETATS D'UNE LIGNE — un fond, un liseré, un badge. Jamais une seule
+   couleur : le liseré se voit meme quand la ligne est survolee.
+   -------------------------------------------------------------------------- */
+.peu-row td:first-child { border-inline-start: 3px solid transparent; }
+.peu-row-diff  td:first-child { border-inline-start-color: var(--peu-green); }
+.peu-row-perte td:first-child { border-inline-start-color: var(--peu-orange); }
+.peu-row-perte { background: #fff8ec !important; }
+.peu-row-lock  td:first-child { border-inline-start-color: var(--peu-red); }
+.peu-row-lock  { background: #fdf0f0 !important; }
+.peu-row-off   { background: #f5f5f5 !important; color: var(--peu-grey); }
+.peu-row-off   td:first-child { border-inline-start-color: var(--peu-grey); }
+
+.peu-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: .083em .5em; border-radius: 50px; font-size: .833em; font-weight: 700;
+}
+.peu-badge-diff  { background: #e8f5e9; color: #1b5e20; cursor: help; }
+.peu-badge-perte { background: #fff3e0; color: #e65100; cursor: help; }
+.peu-badge-lock  { background: #ffebee; color: #c62828; cursor: help; }
+.peu-badge-off   { background: #eceff1; color: #37474f; cursor: help; }
+.peu-badge-ok    { background: #eceff1; color: #607d8b; }
+
+.peu-ico { background: transparent; border: none; padding: 1px 3px; margin: 0; cursor: pointer;
+           font-size: 1.25em; line-height: 1; transition: transform .1s; }
+.peu-ico:hover { transform: scale(1.18); }
+.peu-ico:active { transform: scale(.9); }
+
+/* Les champs du lot D2, sous la ligne du lieu */
+.peu-comp td { background: rgba(0,0,0,.015); border-bottom: 1px solid var(--peu-border); padding-top: 0; }
+.peu-comp-liste { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .909em; color: var(--peu-text2); }
+.peu-comp-liste b { color: var(--peu-text); font-weight: 600; }
+.peu-comp-titre { font-size: .833em; text-transform: uppercase; letter-spacing: .05em;
+                  color: var(--peu-text2); font-weight: 700; margin-bottom: 3px; }
+
+/* --------------------------------------------------------------------------
+   LE PIED D'ACTION — hors defilement, UN SEUL bouton plein : l'etape suivante.
+   -------------------------------------------------------------------------- */
+.peu-footer {
+    flex-shrink: 0; border-top: 1px solid var(--peu-border); background: var(--peu-bg);
+    padding: 9px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.peu-footer-help { font-size: .833em; color: var(--peu-text2); line-height: 1.4; flex: 1; min-width: 160px; }
+.peu-footer-actions { display: flex; gap: 6px; align-items: center; margin-inline-start: auto; }
+
+.peu-alert {
+    background: #fff8e1; border: 1px solid var(--peu-warn); border-radius: var(--peu-radius);
+    padding: .5em .75em; font-size: .833em; color: #5d4037; margin: 8px 12px; line-height: 1.5;
+}
+
+/* Le panneau lateral, reduit a l'historique et aux reglages */
+.peu-side {
+    width: 260px; background: var(--peu-surface); border-radius: 10px; padding: 0 0 10px;
+    box-shadow: var(--peu-shadow); font-family: 'Rubik','Open Sans',sans-serif;
+    font-size: var(--peu-fs-base); color: var(--peu-text); overflow: hidden;
+}
+.peu-side-hdr { background: var(--peu-bg); padding: 8px 12px; font-weight: 700; color: var(--peu-blue);
+                font-size: .917em; border-bottom: 1px solid var(--peu-border); }
+.peu-hist-row { margin: 6px 10px; padding: 5px 7px; background: var(--peu-bg);
+                border-radius: 4px; border-inline-start: 3px solid var(--peu-blue); font-size: .833em; }
+.peu-hist-name { font-weight: 700; color: var(--peu-blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peu-hist-meta { color: var(--peu-text2); margin-top: 1px; }
+
+/* --------------------------------------------------------------------------
+   LE GUIDAGE — il dit TOUJOURS le geste suivant. Repris de WNA : un ecran
+   vide avec un bouton grise n'explique rien.
+   -------------------------------------------------------------------------- */
+.peu-guide {
+    display: flex; align-items: flex-start; gap: 8px;
+    background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1;
+    border-radius: var(--peu-radius, 8px); padding: 8px 10px; margin: 10px 12px;
+    font-size: .917em; line-height: 1.45;
+}
+.peu-guide-n {
+    flex: 0 0 auto; min-width: 17px; height: 17px; line-height: 17px; text-align: center;
+    border-radius: 50%; background: var(--peu-blue, #2C6ED5); color: #fff;
+    font-size: .833em; font-weight: 700;
+}
+.peu-guide-suite { margin-top: 2px; opacity: .85; font-size: .909em; }
+
+.peu-dropzone {
+    border: 2px dashed var(--peu-border, #dde3ea); border-radius: var(--peu-radius, 8px);
+    padding: 18px 12px; text-align: center; font-size: .917em; color: var(--peu-text2, #566372);
+    cursor: pointer; transition: border-color .15s, color .15s; line-height: 1.6;
+}
+.peu-dropzone:hover { border-color: var(--peu-blue, #2C6ED5); color: var(--peu-blue, #2C6ED5); }
+
+/* --------------------------------------------------------------------------
+   LA PROGRESSION — bleu franc : c'est du TRAVAIL EN COURS, ni une alerte
+   (orange) ni un resultat (vert). Chiffres tabulaires pour qu'ils ne dansent
+   pas d'un rafraichissement a l'autre.
+   -------------------------------------------------------------------------- */
+.peu-prog {
+    background: #e3f2fd; border: 1px solid #90caf9; border-radius: var(--peu-radius, 8px);
+    padding: 7px 9px; margin: 10px 12px; font-size: .917em; color: #0d47a1;
+}
+.peu-prog-t { display: flex; align-items: center; gap: 6px; }
+.peu-prog-lib { flex: 1 1 auto; min-width: 0; font-weight: 600;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peu-prog-pct { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.peu-prog-bar { height: 6px; background: #bbdefb; border-radius: 3px; overflow: hidden; margin: 5px 0 4px; }
+.peu-prog-bar > i { display: block; height: 100%; width: 0; background: var(--peu-blue, #2C6ED5);
+                    border-radius: 3px; transition: width .15s linear; }
+.peu-prog-b { display: flex; align-items: center; gap: 6px; }
+.peu-prog-d { flex: 1 1 auto; font-variant-numeric: tabular-nums; font-size: .909em; }
+.peu-prog-x { flex: 0 0 auto; border: 1px solid #ef9a9a; background: #fff;
+              color: var(--peu-red, #e53935); border-radius: 50px; cursor: pointer;
+              font-family: inherit; font-size: .909em; padding: 2px 9px;
+              height: auto; min-height: 22px; }
+.peu-prog-note { color: #a34a00; font-weight: 600; margin-top: 4px; font-size: .909em; }
+
+:focus-visible { outline: 2px solid var(--peu-blue, #2C6ED5); outline-offset: 1px; border-radius: 3px; }
+</style>
+
+<div class="legende">
+  <h1>Maquette — ce que deviendrait WPEU</h1>
+  <p>Rien n'est branché : c'est une maquette d'arbitrage. Les conventions viennent de WCT et WNA.
+  Les quatre états de ligne sont montrés ensemble, ce qui n'arrive jamais en vrai.</p>
+</div>
+
+<div class="scene">
+
+  <!-- LE BOUTON FLOTTANT, tel qu'il apparaîtrait sur la carte -->
+  <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+    <div class="peu-fab-wrap" title="WME POI Event Updater">
+      <button class="peu-fab-btn" type="button" title="WME POI Event Updater">
+        <svg width="22" height="22" viewBox="0 0 128 128" aria-hidden="true">
+          <g transform="rotate(-18 64 64)">
+            <path d="M40 40 L86 40 L102 64 L86 88 L40 88 Z" fill="#2C6ED5"/>
+            <circle cx="52" cy="64" r="6" fill="#fff"/>
+          </g>
+          <g fill="none" stroke="#FFC400" stroke-width="7" stroke-linecap="round">
+            <path d="M44 100 A22 22 0 0 1 84 92"/><path d="M84 28 A22 22 0 0 1 44 36"/>
+          </g>
+        </svg>
+        <span class="peu-fab-badge">9</span>
+      </button>
+    </div>
+    <div style="color:#fff;font-size:11px;text-align:center;max-width:90px;line-height:1.3">
+      docké dans les boutons de la carte
+    </div>
+  </div>
+
+  <!-- LA FENÊTRE OPÉRATIONNELLE -->
+  <div class="peu-overlay">
+    <div class="peu-hdr">
+      <div class="peu-hdr-title">📍 POI Event Updater <span class="peu-hdr-version">v0.52</span></div>
+      <div class="peu-hdr-btns">
+        <button class="peu-hdr-btn" type="button" title="Raccourcis clavier" aria-label="Raccourcis clavier">⌨</button>
+        <button class="peu-hdr-btn" type="button" title="Réduire la fenêtre" aria-label="Réduire la fenêtre">—</button>
+        <button class="peu-hdr-btn" type="button" title="Fermer" aria-label="Fermer">✕</button>
+      </div>
+    </div>
+
+    <div class="peu-strip has-file">
+      <span class="peu-strip-dot"></span>
+      <span class="peu-strip-file">Bol d’Or 2026.xlsx</span>
+      <span class="peu-strip-sep">·</span>
+      <select class="peu-input" style="width:auto;padding:.15em .4em" title="L’onglet du classeur à poser">
+        <option>Hors Evenement</option><option selected>Bol d’Or 2026</option>
+      </select>
+      <span class="peu-strip-sep">·</span>
+      <span style="color:var(--peu-text2)">9 POI</span>
+      <button class="peu-btn peu-btn-neutral peu-btn-sm" type="button" title="Charger un autre classeur"
+              style="margin-inline-start:auto">Changer de fichier…</button>
+    </div>
+
+    <div class="peu-body">
+      <div class="peu-toolbar">
+        <input class="peu-search" type="text" placeholder="Filtrer par nom ou description…" title="Filtrer les lignes">
+        <button class="peu-btn peu-btn-neutral peu-btn-sm" type="button" title="N’afficher que les lignes qui changent quelque chose">≠ Seulement les écarts</button>
+        <span style="font-size:.833em;color:var(--peu-text2)">9 sur 9</span>
+      </div>
+
+      <table class="peu-table">
+        <colgroup><col><col><col><col></colgroup>
+        <thead>
+          <tr>
+            <th class="center" title="Cocher ou décocher toutes les lignes visibles">
+              <label class="peu-check"><input type="checkbox" checked title="Tout cocher / décocher"></label>
+            </th>
+            <th class="center">État</th>
+            <th class="sortable" title="Trier par nom">Nom ▲</th>
+            <th class="sortable" title="Trier par description">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 1. une ligne qui pose quelque chose -->
+          <tr class="peu-row peu-row-diff">
+            <td class="center"><label class="peu-check"><input type="checkbox" checked title="Appliquer cette ligne"></label></td>
+            <td class="center">
+              <button class="peu-ico" type="button" title="Centrer la carte sur ce lieu" aria-label="Centrer la carte sur ce lieu">🎯</button>
+              <span class="peu-badge peu-badge-diff" title="4 champs à poser">4</span>
+            </td>
+            <td>
+              <div class="peu-cell-old" title="Parking Moto - Avignon - TGV">Parking Moto - Avignon - TGV</div>
+              <input class="peu-input" value="Parking Moto - Avignon - TGV" title="Nom à poser">
+            </td>
+            <td>
+              <div class="peu-cell-old">—</div>
+              <input class="peu-input" value="" placeholder="(inchangée)" title="Description à poser">
+            </td>
+          </tr>
+          <tr class="peu-row peu-comp">
+            <td></td><td></td>
+            <td colspan="2">
+              <div class="peu-comp-titre">Champs à poser</div>
+              <div class="peu-comp-liste">
+                <span>Tarif <b>Gratuit</b></span><span>Paiement <b>Espèces</b></span>
+                <span>Services <b>Places PMR ; Surveillance</b></span><span>Situation <b>Extérieur</b></span>
+              </div>
+            </td>
+          </tr>
+
+          <!-- 2. une ligne qui ne change rien -->
+          <tr class="peu-row">
+            <td class="center"><label class="peu-check"><input type="checkbox" title="Appliquer cette ligne"></label></td>
+            <td class="center">
+              <button class="peu-ico" type="button" title="Centrer la carte sur ce lieu" aria-label="Centrer la carte sur ce lieu">🎯</button>
+              <span class="peu-badge peu-badge-ok" title="Rien à poser : le lieu porte déjà ces valeurs">=</span>
+            </td>
+            <td>
+              <div class="peu-cell-old">Parking P1 - Avignon TGV - Courte Durée</div>
+              <input class="peu-input" value="Parking P1 - Avignon TGV - Courte Durée" title="Nom à poser">
+            </td>
+            <td>
+              <div class="peu-cell-old">30 minutes gratuites</div>
+              <input class="peu-input" value="30 minutes gratuites" title="Description à poser">
+            </td>
+          </tr>
+
+          <!-- 3. une ligne DESTRUCTRICE : non cochée, et elle dit ce qu'elle retire -->
+          <tr class="peu-row peu-row-perte">
+            <td class="center"><label class="peu-check"><input type="checkbox" title="Appliquer cette ligne — attention, elle retire des valeurs"></label></td>
+            <td class="center">
+              <button class="peu-ico" type="button" title="Centrer la carte sur ce lieu" aria-label="Centrer la carte sur ce lieu">🎯</button>
+              <span class="peu-badge peu-badge-perte" title="Appliquer retirerait : Carte de crédit">−1</span>
+            </td>
+            <td>
+              <div class="peu-cell-old">Parking P5 - Avignon TGV - Longue Durée</div>
+              <input class="peu-input" value="Parking P5 - Avignon TGV - Longue Durée" title="Nom à poser">
+            </td>
+            <td>
+              <div class="peu-cell-old">—</div>
+              <input class="peu-input" value="" placeholder="(inchangée)" title="Description à poser">
+            </td>
+          </tr>
+          <tr class="peu-row peu-comp peu-row-perte">
+            <td></td><td></td>
+            <td colspan="2">
+              <div class="peu-comp-titre" style="color:#e65100">⚠️ Cette ligne RETIRE des valeurs</div>
+              <div class="peu-comp-liste">
+                <span>Modes de paiement <b>Espèces</b> — retire <b style="color:#e65100">Carte de crédit</b></span>
+              </div>
+            </td>
+          </tr>
+
+          <!-- 4. une ligne verrouillée -->
+          <tr class="peu-row peu-row-lock">
+            <td class="center"><label class="peu-check"><input type="checkbox" disabled title="Lieu verrouillé au-dessus de votre rang"></label></td>
+            <td class="center">
+              <button class="peu-ico" type="button" title="Centrer la carte sur ce lieu" aria-label="Centrer la carte sur ce lieu">🎯</button>
+              <span class="peu-badge peu-badge-lock" title="Verrouillé niveau 5, votre rang est 4">🔒 5</span>
+            </td>
+            <td>
+              <div class="peu-cell-old changed">Parking P3 - Premium</div>
+              <input class="peu-input" value="Parking P3 - Avignon TGV - Premium" title="Nom à poser">
+            </td>
+            <td>
+              <div class="peu-cell-old">—</div>
+              <input class="peu-input" value="" placeholder="(inchangée)" title="Description à poser">
+            </td>
+          </tr>
+
+          <!-- 5. un lieu que WME n'a pas rendu -->
+          <tr class="peu-row peu-row-off">
+            <td class="center"><label class="peu-check"><input type="checkbox" disabled title="Lieu introuvable : rien ne peut être posé"></label></td>
+            <td class="center">
+              <button class="peu-ico" type="button" title="Centrer la carte sur ce lieu" aria-label="Centrer la carte sur ce lieu">🎯</button>
+              <span class="peu-badge peu-badge-off" title="Le lieu n’a pas été trouvé dans l’éditeur : permalien sans venues= ?">?</span>
+            </td>
+            <td>
+              <div class="peu-cell-old">—</div>
+              <input class="peu-input" value="Buvette du hall 3" disabled title="Nom à poser">
+            </td>
+            <td>
+              <div class="peu-cell-old">—</div>
+              <input class="peu-input" value="" disabled placeholder="(inchangée)" title="Description à poser">
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="peu-alert">
+        <b>2 lignes du classeur n’ont pas été retenues.</b> « Bitcoin » n’est pas un mode de paiement
+        que WME connaît, et la ligne 7 n’a pas de permalien exploitable.
+      </div>
+    </div>
+
+    <div class="peu-footer">
+      <div class="peu-footer-help">
+        Décochez ce que vous ne voulez pas poser. Les lignes <b style="color:#e65100">orange</b> retirent
+        des valeurs : elles ne sont jamais cochées d’office.
+      </div>
+      <div class="peu-footer-actions">
+        <button class="peu-btn peu-btn-neutral peu-btn-sm" type="button" title="Enregistrer le rapport de cet aperçu">📥 Rapport</button>
+        <button class="peu-btn peu-btn-primary" type="button" title="Poser les valeurs des lignes cochées dans l’éditeur">
+          Appliquer les 1 ligne cochée
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LE PANNEAU LATÉRAL, réduit à ce qui n'est pas opérationnel -->
+  <div class="peu-side">
+    <div class="peu-side-hdr">📍 POI Event Updater</div>
+    <div class="peu-section" style="border-bottom:1px solid var(--peu-border)">Historique
+      <button class="peu-ico" type="button" title="Vider l’historique" aria-label="Vider l’historique" style="margin-inline-start:auto;font-size:.9em">🗑</button>
+    </div>
+    <div class="peu-hist-row">
+      <div class="peu-hist-name">Bol d’Or 2026.xlsx</div>
+      <div class="peu-hist-meta">chargé aujourd’hui 11:04</div>
+      <div class="peu-hist-meta">appliqué : 6 POI</div>
+    </div>
+    <div class="peu-hist-row">
+      <div class="peu-hist-name">SIAL 2026.xlsx</div>
+      <div class="peu-hist-meta">chargé le 14/09</div>
+      <div class="peu-hist-meta" style="color:var(--peu-orange)">jamais appliqué</div>
+    </div>
+    <div class="peu-section" style="border-bottom:1px solid var(--peu-border);margin-top:6px">Réglages</div>
+    <div style="padding:8px 12px;font-size:.833em;color:var(--peu-text2);line-height:1.5">
+      Langue, densité d’affichage, comportement de la carte…<br>
+      <i>(à venir — l’emplacement est réservé)</i>
+    </div>
+  </div>
+
+</div>
+
+<div class="legende" style="margin-top:28px">
+  <h1>Les deux autres moments</h1>
+  <p>Une interface ne se juge pas sur son seul état plein. À gauche : ce qu’on voit
+  en ouvrant, quand rien n’est chargé — il doit dire par où commencer, pas afficher
+  un bouton grisé. À droite : pendant le travail.</p>
+</div>
+
+<div class="scene">
+
+  <!-- RIEN N'EST CHARGÉ : la fenêtre dit le geste suivant -->
+  <div class="peu-overlay" style="width:380px">
+    <div class="peu-hdr">
+      <div class="peu-hdr-title">📍 POI Event Updater <span class="peu-hdr-version">v0.52</span></div>
+      <div class="peu-hdr-btns">
+        <button class="peu-hdr-btn" type="button" title="Raccourcis clavier" aria-label="Raccourcis clavier">⌨</button>
+        <button class="peu-hdr-btn" type="button" title="Réduire la fenêtre" aria-label="Réduire la fenêtre">—</button>
+        <button class="peu-hdr-btn" type="button" title="Fermer" aria-label="Fermer">✕</button>
+      </div>
+    </div>
+    <div class="peu-strip">
+      <span class="peu-strip-dot"></span>
+      <span style="color:var(--peu-text2)">Aucun classeur chargé</span>
+    </div>
+    <div class="peu-body">
+      <div class="peu-guide">
+        <span class="peu-guide-n">1</span>
+        <div>
+          <b>Choisissez le classeur de l’événement.</b>
+          <div class="peu-guide-suite">Ensuite vous choisirez l’onglet, puis vous relirez chaque ligne avant d’appliquer.</div>
+        </div>
+      </div>
+      <div style="padding:0 12px 12px">
+        <div class="peu-dropzone" title="Déposez un fichier .xlsx ici, ou cliquez pour le choisir">
+          📄 Déposez un classeur ici<br><span style="font-size:.833em">ou cliquez pour le choisir</span>
+        </div>
+      </div>
+      <div class="peu-section">Le classeur attendu</div>
+      <div style="padding:8px 12px;font-size:.833em;color:var(--peu-text2);line-height:1.6">
+        Un onglet par événement. Une ligne par lieu, avec au minimum son
+        <b>permalien WME</b>. Les colonnes se reconnaissent <b>par leur nom</b>, dans
+        n’importe quel ordre.
+        <div style="margin-top:6px"><a href="#" style="color:var(--peu-blue)">Télécharger un modèle vierge</a></div>
+      </div>
+    </div>
+    <div class="peu-footer">
+      <div class="peu-footer-help">Rien n’est écrit sur la carte tant que vous n’avez pas cliqué sur Appliquer.</div>
+      <div class="peu-footer-actions">
+        <button class="peu-btn peu-btn-primary" type="button" title="Choisir un classeur sur votre disque">Choisir un fichier…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LE TRAVAIL EN COURS -->
+  <div class="peu-overlay" style="width:380px">
+    <div class="peu-hdr">
+      <div class="peu-hdr-title">📍 POI Event Updater <span class="peu-hdr-version">v0.52</span></div>
+      <div class="peu-hdr-btns">
+        <button class="peu-hdr-btn" type="button" title="Réduire la fenêtre" aria-label="Réduire la fenêtre">—</button>
+        <button class="peu-hdr-btn" type="button" title="Fermer" aria-label="Fermer">✕</button>
+      </div>
+    </div>
+    <div class="peu-strip has-file">
+      <span class="peu-strip-dot"></span>
+      <span class="peu-strip-file">Bol d’Or 2026.xlsx</span>
+      <span class="peu-strip-sep">·</span>
+      <span style="color:var(--peu-text2)">Bol d’Or 2026</span>
+    </div>
+    <div class="peu-body">
+      <div class="peu-prog">
+        <div class="peu-prog-t">
+          <span class="peu-prog-lib">Lecture des lieux dans l’éditeur…</span>
+          <span class="peu-prog-pct">62 %</span>
+        </div>
+        <div class="peu-prog-bar"><i style="width:62%"></i></div>
+        <div class="peu-prog-b">
+          <span class="peu-prog-d">14 / 22 · 18 s · reste ~11 s</span>
+          <button class="peu-prog-x" type="button" title="Interrompre : ce qui est déjà lu est conservé">Annuler</button>
+        </div>
+        <div class="peu-prog-note">Onglet en arrière-plan : le navigateur ralentit le travail.</div>
+      </div>
+      <div class="peu-section">Ce que fait cette étape</div>
+      <div style="padding:8px 12px;font-size:.833em;color:var(--peu-text2);line-height:1.6">
+        La carte parcourt les lieux du classeur pour lire ce qu’ils portent aujourd’hui.
+        <b>Rien n’est modifié</b> : c’est cette lecture qui permet de vous montrer,
+        ligne par ligne, ce qui changerait.
+        <div style="margin-top:6px">Au terme du balayage, la carte reste <b>cadrée sur le périmètre</b>.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</html>

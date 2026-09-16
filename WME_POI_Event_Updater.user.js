@@ -51,6 +51,23 @@
             fr: {
                 tabTitle:'POI Events', tabTooltip:'Mise à jour POI via Excel',
                 panelTitle:'POI Event Updater', chooseFile:'📂 Choisir un fichier',
+                chooseFileTitle:'Charger un classeur .xlsx depuis votre disque',
+                selectSheet:'L’onglet du classeur à poser',
+                fabTitle:'POI Event Updater — afficher la fenêtre',
+                fabTitleOn:'POI Event Updater — masquer la fenêtre',
+                btnApplyNone:'Rien de coché', btnApplyOne:'Appliquer 1 ligne',
+                btnApplyN:(n)=>`Appliquer les ${n} lignes cochées`,
+                btnApplyTitle:'Poser les valeurs des lignes cochées dans l’éditeur. Rien n’est enregistré : vous relirez dans WME.',
+                btnExportTitle:'Enregistrer le rapport de cet aperçu',
+                footerHelpVide:'Rien n’est écrit sur la carte tant que vous n’avez pas cliqué sur Appliquer.',
+                guideFichier:'Choisissez le classeur de l’événement.',
+                guideFichierSuite:'Ensuite vous choisirez l’onglet, puis vous relirez chaque ligne avant d’appliquer.',
+                guideOnglet:'Choisissez l’onglet à poser.',
+                guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
+                colSelect:'Poser', colEtat:'État',
+                badgeDiffTitle:(n)=>`${n} champ(s) à poser`,
+                badgeRienTitle:'Rien à poser : le lieu porte déjà ces valeurs',
+                badgeOffTitle:'Lieu introuvable dans l’éditeur : rien ne peut être posé',
                 noFile:'Aucun fichier choisi', showBtn:'▶ Afficher modifications',
                 historyTitle:'Fichiers récents', histLoaded:'📂 Chargé :', histApplied:'✔ Appliqué :',
                 histNeverApplied:'✔ Jamais appliqué', filterPlaceholder:'🔍 Filtrer par nom…',
@@ -103,6 +120,23 @@
             en: {
                 tabTitle:'POI Events', tabTooltip:'Bulk-update POIs via Excel',
                 panelTitle:'POI Event Updater', chooseFile:'📂 Choose a file',
+                chooseFileTitle:'Load an .xlsx workbook from your disk',
+                selectSheet:'Which sheet to apply',
+                fabTitle:'POI Event Updater — show the window',
+                fabTitleOn:'POI Event Updater — hide the window',
+                btnApplyNone:'Nothing ticked', btnApplyOne:'Apply 1 row',
+                btnApplyN:(n)=>`Apply the ${n} ticked rows`,
+                btnApplyTitle:'Write the ticked rows into the editor. Nothing is saved: you will review in WME.',
+                btnExportTitle:'Save the report of this preview',
+                footerHelpVide:'Nothing is written to the map until you click Apply.',
+                guideFichier:'Choose the event workbook.',
+                guideFichierSuite:'Then pick the sheet, and review every row before applying.',
+                guideOnglet:'Choose the sheet to apply.',
+                guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
+                colSelect:'Apply', colEtat:'State',
+                badgeDiffTitle:(n)=>`${n} field(s) to write`,
+                badgeRienTitle:'Nothing to write: the place already carries these values',
+                badgeOffTitle:'Place not found in the editor: nothing can be written',
                 noFile:'No file chosen', showBtn:'▶ Show changes',
                 historyTitle:'Recent files', histLoaded:'📂 Loaded:', histApplied:'✔ Applied:',
                 histNeverApplied:'✔ Never applied', filterPlaceholder:'🔍 Filter by name…',
@@ -190,204 +224,450 @@
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    const CSS = `
-        .peu-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: transparent; z-index: 10000;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            pointer-events: none;
-        }
-        .peu-box {
-            position: absolute;
-            background: #f9f9f9; width: 480px; min-width: 340px;
-            max-width: 96vw; max-height: 88vh; min-height: 120px; border-radius: 10px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.35); display: flex; flex-direction: column;
-            overflow: hidden; pointer-events: all; resize: horizontal;
-            transition: max-height 0.2s ease, box-shadow 0.2s;
-        }
-        .peu-box.minimized {
-            max-height: 44px !important;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-        }
-        .peu-box.minimized .peu-scroll,
-        .peu-box.minimized .peu-footer,
-        .peu-box.minimized .peu-toolbar { display: none; }
-        .peu-scroll { overflow: auto; flex: 1; }
-        .peu-header {
-            display: flex; align-items: center; justify-content: space-between;
-            background: #2C6ED5; color: #fff; padding: 8px 14px; flex-shrink: 0;
-            cursor: grab; user-select: none;
-        }
-        .peu-header:active { cursor: grabbing; }
-        .peu-header-left { display: flex; align-items: center; gap: 8px; }
-        .peu-header-left span { font-size: 13px; font-weight: 600; letter-spacing: 0.3px; }
-        .peu-drag-hint { font-size: 10px; opacity: 0.6; letter-spacing: 0.2px; }
-        .peu-header-btns { display: flex; gap: 6px; }
-        .peu-btn-icon {
-            background: rgba(255,255,255,0.15); border: none; border-radius: 5px;
-            color: #fff; font-size: 14px; width: 28px; height: 28px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            transition: background 0.15s; flex-shrink: 0;
-        }
-        .peu-btn-icon:hover { background: rgba(255,255,255,0.30); }
-        .peu-btn-icon.apply:hover { background: #27ae60; }
-        .peu-btn-icon.cancel:hover { background: #c0392b; }
-        .peu-btn-icon.minimize { font-size: 16px; }
-        .peu-btn-icon.diffonly { font-size: 11px; width: auto; padding: 0 7px; letter-spacing: 0.2px; }
-        .peu-btn-icon.diffonly.active { background: rgba(255,255,255,0.35); }
-        .peu-toolbar {
-            display: flex; align-items: center; gap: 8px;
-            padding: 6px 10px; background: #eef2fa;
-            border-bottom: 1px solid #d0ddf5; flex-shrink: 0;
-        }
-        .peu-search {
-            flex: 1; font-size: 11.5px; font-family: inherit;
-            border: 1px solid #c5d3e8; border-radius: 4px; padding: 3px 8px;
-            background: #fff; color: #222; outline: none;
-            transition: border 0.15s;
-        }
-        .peu-search:focus { border-color: #2C6ED5; background: #f0f6ff; }
-        .peu-search-clear {
-            background: none; border: none; cursor: pointer; color: #aaa;
-            font-size: 14px; padding: 0 2px; line-height: 1;
-            display: none;
-        }
-        .peu-search-clear:hover { color: #c0392b; }
-        .peu-search-count { font-size: 11px; color: #888; white-space: nowrap; }
-        .peu-table {
-            width: 100%; border-collapse: collapse; table-layout: fixed;
-            font-size: 11.5px; color: #222;
-        }
-        .peu-table colgroup col:nth-child(1) { width: 34px; }
-        .peu-table colgroup col:nth-child(2) { width: 42%; }
-        .peu-table colgroup col:nth-child(3) { width: 46%; }
-        .peu-table colgroup col:nth-child(4) { width: 30px; }
-        .peu-table thead th {
-            background: #e8eef8; color: #2C6ED5; font-size: 11px; font-weight: 700;
-            text-transform: uppercase; letter-spacing: 0.4px; padding: 6px 5px;
-            border-bottom: 2px solid #2C6ED5; position: sticky; top: 0; z-index: 2;
-            text-align: center;
-        }
-        .peu-table thead th.sortable {
-            cursor: pointer; user-select: none;
-        }
-        .peu-table thead th.sortable:hover { background: #d0ddf5; }
-        .peu-table thead th .peu-sort-icon {
-            display: inline-block; margin-left: 4px; opacity: 0.35; font-style: normal;
-        }
-        .peu-table thead th.sort-asc .peu-sort-icon,
-        .peu-table thead th.sort-desc .peu-sort-icon { opacity: 1; color: #1a4fa0; }
-        .peu-table tbody tr { transition: background 0.1s; }
-        .peu-table tbody tr:nth-child(even) { background: #f0f4fb; }
-        .peu-table tbody tr:nth-child(odd)  { background: #ffffff; }
-        .peu-table tbody tr:hover { background: #dce8fb; }
-        .peu-table td {
-            padding: 4px 5px; border-bottom: 1px solid #e0e0e0;
-            vertical-align: top; word-break: break-word;
-        }
-        .peu-table td.center { text-align: center; vertical-align: middle; }
-        /* Vue fusionnée : ancienne valeur (1 ligne, tronquée) au-dessus du champ.
-           Hauteur fixe identique dans les 2 colonnes → les champs restent alignés. */
-        .peu-cell-old {
-            color: #8a8a8a; font-size: 10px; line-height: 1.4; height: 14px;
-            margin-bottom: 3px; white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .peu-cell-old.changed {
-            color: #c0392b; text-decoration: line-through;
-            text-decoration-color: rgba(192,57,43,0.5);
-        }
-        .peu-lock-ok   { font-size: 13px; cursor: default; }
-        .peu-lock-sae  { font-size: 13px; cursor: default; color: #e67e22; }
-        .peu-lock-hard { font-size: 13px; cursor: default; color: #c0392b; }
-        .peu-table tr.peu-row-sae  { background: #fff8f0 !important; }
-        .peu-table tr.peu-row-hard { background: #fff0f0 !important; opacity: 0.7; }
-        .peu-table tr.peu-row-diff { background: #eef4ff !important; }
-        .peu-table tr.peu-row-diff:hover { background: #dce8fb !important; }
+    const PEU_EMOJI = '📍';
 
-        /* ── Les champs du lot D2, sous la ligne du lieu ──
-           ⭐ Cette ligne n'existe QUE si le classeur porte autre chose que le nom
-              et la description : un fichier d'hier garde exactement l'aspect
-              d'hier. */
-        .peu-plus {
-            display: flex; flex-wrap: wrap; gap: 3px 5px; align-items: baseline;
-            margin-top: 4px; font-size: 10.5px; line-height: 1.5; color: #555;
-        }
-        .peu-pastille {
-            border-radius: 3px; padding: 1px 6px; white-space: nowrap;
-            border: 1px solid transparent;
-        }
-        /* Le vert n'est PAS décoratif : il dit « le script écrira ceci ». */
-        .peu-pastille-pose   { background: #eaf6ec; border-color: #bfe0c6; color: #1e6b2f; }
-        /* Le gris dit « à toi de le poser » — ni succès, ni alerte. */
-        .peu-pastille-montre { background: #f2f2f2; border-color: #ddd;    color: #555; }
-        .peu-pastille-refus  { background: #fdeceb; border-color: #f5c6c2; color: #a3281e; }
-        /* L'orange dit « j'enlève » : ni un succès, ni une erreur — une perte. */
-        .peu-pastille-perte  { background: #fdf3e3; border-color: #f0d3a0; color: #8a5a00; }
-        .peu-pastille b { font-weight: 600; }
-        .peu-pastille-titre { color: #888; padding: 1px 0; }
-        .peu-table tr.peu-row-unloaded { background: #fafafa !important; opacity: 0.6; }
-        .peu-unloaded-icon { font-size: 11px; color: #aaa; display: block; margin-top: 2px; }
-        .peu-diff-dot {
-            display: block; width: 7px; height: 7px; border-radius: 50%;
-            background: #2C6ED5; margin: 3px auto 0;
-        }
-        .peu-lock-badge {
-            display: inline-block; font-size: 10px; font-weight: 700; border-radius: 3px;
-            padding: 1px 4px; margin-left: 6px; vertical-align: middle;
-        }
-        .peu-lock-badge.sae  { background: #fdebd0; color: #e67e22; border: 1px solid #e67e22; }
-        .peu-lock-badge.hard { background: #fadbd8; color: #c0392b; border: 1px solid #c0392b; }
-        .peu-progress-wrap {
-            padding: 10px 14px 8px; background: #f0f4fb;
-            border-top: 1px solid #dde3ee; flex-shrink: 0;
-        }
-        .peu-progress-label {
-            font-size: 11px; color: #2C6ED5; margin-bottom: 5px; text-align: center;
-        }
-        .peu-progress-bar-bg {
-            background: #d0ddf5; border-radius: 6px; height: 8px; overflow: hidden;
-        }
-        .peu-progress-bar {
-            background: #2C6ED5; height: 8px; width: 0%; border-radius: 6px;
-            transition: width 0.3s ease;
-        }
-        .peu-btn-center {
-            background: none; border: none; cursor: pointer; font-size: 13px;
-            padding: 2px; border-radius: 4px; transition: background 0.1s;
-        }
-        .peu-btn-center:hover { background: #dce8fb; }
-        .peu-input, .peu-textarea {
-            width: 100%; box-sizing: border-box; height: 36px;
-            font-size: 11.5px; font-family: inherit;
-            border: 1px solid #c5d3e8; border-radius: 4px; padding: 3px 5px;
-            background: #fff; color: #222; resize: none; transition: border 0.15s;
-        }
-        .peu-input:focus, .peu-textarea:focus {
-            outline: none; border-color: #2C6ED5; background: #f0f6ff;
-        }
-        .peu-textarea { overflow-y: auto; line-height: 1.3; }
-        .peu-checkbox { width: 14px; height: 14px; cursor: pointer; accent-color: #2C6ED5; }
-        .peu-footer {
-            padding: 6px 14px; background: #f0f4fb; border-top: 1px solid #dde3ee;
-            font-size: 11px; color: #666; text-align: right; flex-shrink: 0;
-        }
-        .peu-footer-error {
-            padding: 8px 14px; background: #fff5f5; border-top: 2px solid #e74c3c;
-            font-size: 11px; flex-shrink: 0;
-        }
-        .peu-footer-error .peu-error-title {
-            color: #c0392b; font-weight: 700; margin-bottom: 5px;
-        }
-        .peu-footer-error ul {
-            margin: 4px 0 8px 16px; padding: 0; color: #555;
-        }
-        .peu-footer-error ul li { margin-bottom: 2px; }
-        .peu-btn-retry {
-            background: #e74c3c; color: #fff; border: none; border-radius: 5px;
-            padding: 4px 12px; font-size: 11px; cursor: pointer; font-weight: 600;
-        }
-        .peu-btn-retry:hover { background: #c0392b; }
+    /**
+     * ECHAPPE UNE DONNEE AVANT DE L'INSERER DANS DU HTML.
+     *
+     * ⚠️⚠️ LES CINQ CARACTERES, PAS TROIS. Oublier l'apostrophe et le chevron
+     *    fermant suffit a faire sortir une valeur de son attribut : un nom de
+     *    lieu venu d'un classeur est une donnee EXTERNE, et ce script en pose
+     *    dans des title= a chaque ligne.
+     */
+    function esc(v) {
+        return String(v === undefined || v === null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /* ======================================================================
+       LA FEUILLE DE STYLE — une seule, injectee une fois, prefixe peu- partout.
+
+       ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE BLOC. Il vit dans un template literal :
+          un seul accent grave le referme et casse tout le script. Le piege est
+          connu des deux autres scripts de la famille, qui le rappellent chacun
+          six fois.
+
+       ⭐ TOUT EST EN em, A PARTIR DE --peu-fs-base : changer cette seule valeur
+          redimensionne l'interface entiere. C'est ce qui rend une densite
+          reglable possible sans repeindre trente classes.
+
+       ⚠️ CHAQUE USAGE PORTE SON REPLI : var(--peu-blue, #2C6ED5). Une variable
+          manquante ne doit jamais faire DISPARAITRE une couleur.
+       ====================================================================== */
+    const CSS = `
+:root {
+    --peu-blue:    #2C6ED5;
+    --peu-blue-dk: #1a4fa0;
+    --peu-green:   #43a047;
+    --peu-red:     #e53935;
+    --peu-orange:  #f57c00;
+    --peu-grey:    #9e9e9e;
+    --peu-warn:    #f9a825;
+    --peu-surface: #ffffff;
+    --peu-bg:      #f5f7f9;
+    --peu-border:  #dde3ea;
+    --peu-text:    #2d3748;
+    --peu-text2:   #566372;
+    --peu-radius:  8px;
+    --peu-shadow:  0 8px 32px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.12);
+    --peu-fs-base: 12px;
+}
+
+/* ⚠️ box-sizing SUR TOUT CE QUI EST A NOUS : sans lui, un width:100% sort du
+   panneau lateral, qui n'offre que 315 px utiles. */
+#peu-overlay, #peu-overlay *, .peu-container, .peu-container *,
+#peu-fab-wrap, #peu-fab-wrap * { box-sizing: border-box; }
+
+/* ----------------------------------------------------------------------
+   LE BOUTON DE CARTE
+   ⚠️ NI position NI z-index : il est docke dans le conteneur natif des
+      boutons de WME, dont il herite le contexte d'empilement. Pose en
+      position:fixed, il passerait PAR-DESSUS le panneau des calques.
+   ⚠️ order:100 — le conteneur est une grille ; WNA prend 99, WCT reinsere
+      le sien en dernier. 100 nous range derriere les deux, et l'ordre ne
+      depend plus de qui a demarre le premier.
+   ---------------------------------------------------------------------- */
+#peu-fab-wrap { width: 40px; height: 40px; order: 100; }
+#peu-fab-btn {
+    width: 40px; height: 40px; padding: 0; margin: 0; border: none; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+    cursor: pointer; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    transition: box-shadow .15s;
+}
+#peu-fab-btn:hover  { box-shadow: 0 3px 10px rgba(0,0,0,.4); }
+#peu-fab-btn.peu-fab-on { box-shadow: 0 0 0 2px var(--peu-blue, #2C6ED5), 0 2px 6px rgba(0,0,0,.3); }
+.peu-fab-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--peu-green, #43a047); color: #fff;
+    border-radius: 50px; font: 700 10px/1 'Rubik','Open Sans',sans-serif;
+    padding: 2px 4px; border: 2px solid #fff;
+    pointer-events: none; white-space: nowrap; display: none;
+}
+#peu-fab-btn.peu-has-file .peu-fab-badge { display: block; }
+
+/* ----------------------------------------------------------------------
+   LA FENETRE — le TRAVAIL. Le panneau lateral, lui, porte les REGLAGES.
+   ---------------------------------------------------------------------- */
+#peu-overlay {
+    position: fixed; z-index: 9200;
+    width: min(820px, calc(100vw - 24px));
+    background: var(--peu-surface, #fff);
+    border: 1px solid var(--peu-border, #dde3ea); border-radius: 12px;
+    box-shadow: var(--peu-shadow);
+    display: none; flex-direction: column;
+    max-height: calc(100vh - 110px);
+    font-family: 'Rubik','Open Sans',sans-serif;
+    font-size: var(--peu-fs-base, 12px); color: var(--peu-text, #2d3748);
+    overflow: hidden;
+}
+#peu-overlay.peu-open { display: flex; }
+#peu-overlay.peu-replie #peu-body,
+#peu-overlay.peu-replie .peu-footer,
+#peu-overlay.peu-replie #peu-strip { display: none; }
+#peu-overlay.peu-replie { height: auto !important; max-height: none !important; resize: none; }
+
+.peu-header {
+    background: linear-gradient(135deg, #3d84e8 0%, var(--peu-blue-dk, #1a4fa0) 100%);
+    color: #fff; padding: 9px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: move; user-select: none;
+    border-radius: 11px 11px 0 0; flex-shrink: 0;
+}
+#peu-overlay.peu-replie .peu-header { border-radius: 11px; }
+.peu-header-left {
+    font-size: 1.083em; font-weight: 700;
+    display: flex; align-items: center; gap: 7px;
+    min-width: 0; white-space: nowrap; overflow: hidden;
+}
+.peu-header-version { font-size: .833em; opacity: .6; flex-shrink: 0; }
+.peu-header-btns { display: flex; gap: 5px; flex-shrink: 0; }
+.peu-btn-icon {
+    background: rgba(255,255,255,.18); border: none; color: #fff;
+    width: 24px; height: 24px; min-height: 0; border-radius: 50%;
+    cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit; font-size: 1.083em; line-height: 1;
+    transition: background .15s;
+}
+.peu-btn-icon:hover { background: rgba(255,255,255,.35); }
+.peu-btn-icon:disabled { opacity: .45; cursor: default; }
+
+/* Le bandeau d'etat : ce qui est charge, sous les yeux en permanence. */
+#peu-strip {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    padding: 6px 12px; background: var(--peu-bg, #f5f7f9);
+    border-bottom: 1px solid var(--peu-border, #dde3ea);
+    font-size: .917em; flex-shrink: 0;
+}
+.peu-strip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--peu-grey, #9e9e9e); flex-shrink: 0; }
+#peu-strip.peu-has-file .peu-strip-dot { background: var(--peu-green, #43a047); }
+.peu-strip-file { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.peu-strip-sep { color: var(--peu-border, #dde3ea); }
+.peu-strip-info { color: var(--peu-text2, #566372); }
+
+#peu-body { flex: 1; overflow-y: auto; min-height: 0; }
+.peu-scroll { overflow: visible; }
+
+.peu-section {
+    font-size: .833em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--peu-blue, #2C6ED5);
+    border-bottom: 1px solid var(--peu-border, #dde3ea);
+    margin: 0; padding: 9px 12px 5px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------------
+   LES BOUTONS
+   ⚠️⚠️ height:auto ET min-height : WME impose height:32px a TOUT bouton par
+      sa feuille globale. Sans cette parade, un libelle sur deux lignes est
+      coupe net.
+   ⚠️ :not(:disabled) SUR CHAQUE VARIANTE : sans lui, .peu-btn:hover (plus
+      specifique) l'emporte sur .peu-btn-primary et repeint le fond en clair
+      SOUS un texte reste blanc. Regle generale : ne jamais poser un FOND
+      sans poser la COULEUR DE TEXTE qui va avec.
+   ---------------------------------------------------------------------- */
+.peu-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: .417em 1em; border: none; border-radius: 50px;
+    font-family: inherit; font-size: .917em; font-weight: 600;
+    height: auto; min-height: 28px; line-height: 1.35;
+    cursor: pointer; white-space: nowrap;
+    transition: filter .15s, transform .1s, background .15s;
+}
+.peu-btn:active:not(:disabled) { transform: scale(.97); }
+.peu-btn-primary { background: var(--peu-blue, #2C6ED5);   color: #fff; }
+.peu-btn-success { background: var(--peu-green, #43a047);  color: #fff; }
+.peu-btn-danger  { background: var(--peu-red, #e53935);    color: #fff; }
+.peu-btn-neutral { background: var(--peu-border, #dde3ea); color: var(--peu-text, #2d3748); }
+.peu-btn-primary:hover:not(:disabled) { background: var(--peu-blue-dk, #1a4fa0); color: #fff; }
+.peu-btn-success:hover:not(:disabled),
+.peu-btn-danger:hover:not(:disabled)  { filter: brightness(1.1); }
+.peu-btn-neutral:hover:not(:disabled) { filter: brightness(.95); }
+.peu-btn:disabled { opacity: .45; cursor: not-allowed; }
+.peu-btn-sm { padding: .25em .75em; font-size: .833em; min-height: 24px; }
+.peu-btn-full { width: 100%; }
+
+/* Bouton discret de ligne (recentrage). Pas de fond, pas de bordure. */
+.peu-btn-center, .peu-btn-retry {
+    background: transparent; border: none; padding: 1px 3px; margin: 0;
+    cursor: pointer; font-size: 1.25em; line-height: 1;
+    height: auto; min-height: 0; transition: transform .1s;
+}
+.peu-btn-center:hover, .peu-btn-retry:hover { transform: scale(1.18); }
+.peu-btn-center:active, .peu-btn-retry:active { transform: scale(.9); }
+
+/* ----------------------------------------------------------------------
+   CHAMPS
+   ---------------------------------------------------------------------- */
+.peu-input, .peu-textarea, .peu-search, .peu-select {
+    width: 100%; padding: .25em .45em;
+    border: 1px solid var(--peu-border, #dde3ea); border-radius: var(--peu-radius, 8px);
+    font-family: inherit; font-size: 1em;
+    background: #fff; color: var(--peu-text, #2d3748);
+    transition: border-color .15s;
+}
+.peu-textarea { resize: vertical; min-height: 2.2em; line-height: 1.4; }
+.peu-input:focus, .peu-textarea:focus, .peu-search:focus, .peu-select:focus {
+    outline: none; border-color: var(--peu-blue, #2C6ED5);
+    box-shadow: 0 0 0 3px rgba(44,110,213,.15);
+}
+.peu-input:disabled, .peu-textarea:disabled { background: #f1f3f6; color: var(--peu-grey, #9e9e9e); }
+.peu-select { width: auto; padding: .2em .4em; }
+
+/* La case vit DANS un label : toute la zone devient cliquable. */
+.peu-check { display: inline-flex; align-items: center; cursor: pointer; }
+.peu-check input, .peu-checkbox {
+    width: 15px; height: 15px; margin: 0;
+    cursor: pointer; accent-color: var(--peu-blue, #2C6ED5);
+}
+.peu-check input:disabled, .peu-checkbox:disabled { cursor: not-allowed; }
+
+.peu-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
+.peu-search { flex: 1; min-width: 140px; }
+.peu-search-clear {
+    background: none; border: none; cursor: pointer; color: var(--peu-grey, #9e9e9e);
+    font-size: 1.1em; padding: 0 2px; line-height: 1; display: none;
+    height: auto; min-height: 0;
+}
+.peu-search-clear:hover { color: var(--peu-red, #e53935); }
+.peu-search-count { font-size: .833em; color: var(--peu-text2, #566372); white-space: nowrap; }
+
+/* ----------------------------------------------------------------------
+   LE TABLEAU
+   ⭐⭐⭐⭐ LA CASE EST EN PREMIERE COLONNE, avec un intitule. Elle vivait en
+      quatrieme et derniere, large de 30 px, sous un en-tete vide : le pied
+      de page disait de decocher des lignes en designant quelque chose que
+      personne ne voyait.
+   ---------------------------------------------------------------------- */
+.peu-table {
+    width: 100%; border-collapse: collapse; table-layout: fixed;
+    font-size: .958em; color: var(--peu-text, #2d3748);
+}
+.peu-table colgroup col:nth-child(1) { width: 44px; }
+.peu-table colgroup col:nth-child(2) { width: 62px; }
+.peu-table colgroup col:nth-child(3) { width: 40%; }
+.peu-table colgroup col:nth-child(4) { width: auto; }
+.peu-table thead th {
+    background: var(--peu-bg, #f5f7f9); color: var(--peu-blue, #2C6ED5);
+    font-size: .833em; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    padding: 7px 6px; border-bottom: 2px solid var(--peu-blue, #2C6ED5);
+    position: sticky; top: 0; z-index: 2; text-align: start;
+}
+.peu-table thead th.center { text-align: center; }
+.peu-table thead th.sortable { cursor: pointer; user-select: none; }
+.peu-table thead th.sortable:hover { background: #e3ecfa; }
+.peu-table thead th .peu-sort-icon { display: inline-block; margin-left: 4px; opacity: .35; font-style: normal; }
+.peu-table thead th.sort-asc .peu-sort-icon,
+.peu-table thead th.sort-desc .peu-sort-icon { opacity: 1; }
+.peu-table td { padding: 6px; border-bottom: 1px solid var(--peu-border, #dde3ea); vertical-align: top; word-break: break-word; }
+.peu-table td.center { text-align: center; vertical-align: middle; }
+.peu-table tbody tr.peu-ligne:hover > td { background: #e8f0fd; }
+
+/* ⚠️⚠️ TROIS SIGNES POUR UN ETAT, JAMAIS UN SEUL : un lisere a gauche, un
+   fond, un badge. Le fond seul disparait sous le survol, et le badge seul se
+   rate. Le lisere, lui, tient dans les trois cas. */
+.peu-ligne > td:first-child { border-inline-start: 3px solid transparent; }
+.peu-row-diff     > td:first-child { border-inline-start-color: var(--peu-green, #43a047); }
+.peu-row-perte    > td:first-child { border-inline-start-color: var(--peu-orange, #f57c00); }
+.peu-row-perte    > td { background: #fff8ec; }
+.peu-row-hard     > td:first-child { border-inline-start-color: var(--peu-red, #e53935); }
+.peu-row-hard     > td { background: #fdf0f0; }
+.peu-row-sae      > td:first-child { border-inline-start-color: var(--peu-warn, #f9a825); }
+.peu-row-sae      > td { background: #fffdf0; }
+.peu-row-unloaded > td:first-child { border-inline-start-color: var(--peu-grey, #9e9e9e); }
+.peu-row-unloaded > td { background: #f5f5f5; color: var(--peu-grey, #9e9e9e); }
+
+.peu-cell-old {
+    color: #8a8a8a; font-size: .909em; line-height: 1.4; min-height: 14px;
+    margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.peu-cell-old.changed {
+    color: var(--peu-red, #e53935); text-decoration: line-through;
+    text-decoration-color: rgba(229,57,53,.5);
+}
+
+/* Badges : fond pastel, texte de la meme teinte en fonce. cursor:help des
+   qu'ils portent une explication qu'on ne lit qu'au survol. */
+.peu-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: .083em .5em; border-radius: 50px;
+    font-size: .833em; font-weight: 700; white-space: nowrap;
+}
+.peu-badge-diff  { background: #e8f5e9; color: #1b5e20; cursor: help; }
+.peu-badge-perte { background: #fff3e0; color: #e65100; cursor: help; }
+.peu-badge-lock  { background: #ffebee; color: #c62828; cursor: help; }
+.peu-badge-sae   { background: #fff8e1; color: #f57f17; cursor: help; }
+.peu-badge-off   { background: #eceff1; color: #37474f; cursor: help; }
+.peu-badge-ok    { background: #eceff1; color: #607d8b; cursor: help; }
+.peu-lock-badge, .peu-diff-dot, .peu-unloaded-icon { display: none; }
+
+/* Les champs du lot D2, sous la ligne du lieu. */
+.peu-comp > td { background: rgba(0,0,0,.015); padding-top: 0; }
+.peu-comp-titre {
+    font-size: .833em; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--peu-text2, #566372); font-weight: 700; margin-bottom: 3px;
+}
+.peu-comp-liste { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: .909em; color: var(--peu-text2, #566372); }
+.peu-comp-liste b { color: var(--peu-text, #2d3748); font-weight: 600; }
+.peu-pastille, .peu-pastille-titre, .peu-plus { font-size: .909em; }
+.peu-plus { color: var(--peu-text2, #566372); }
+
+/* ----------------------------------------------------------------------
+   LE PIED D'ACTION — hors defilement.
+   ⭐ UN SEUL BOUTON PLEIN : l'ETAPE SUIVANTE. Appliquer etait un glyphe de
+      un caractere dans la barre de titre, colle a la croix qui ferme : deux
+      signes de meme taille, l'un ecrit sur la carte, l'autre abandonne.
+   ---------------------------------------------------------------------- */
+.peu-footer {
+    flex-shrink: 0; border-top: 1px solid var(--peu-border, #dde3ea);
+    background: var(--peu-bg, #f5f7f9); padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.peu-footer-help { font-size: .833em; color: var(--peu-text2, #566372); line-height: 1.4; flex: 1; min-width: 150px; }
+.peu-footer-actions { display: flex; gap: 6px; align-items: center; margin-inline-start: auto; }
+.peu-footer-error {
+    background: #fff0f0; border: 1px solid var(--peu-red, #e53935); color: #8a1c14;
+    border-radius: var(--peu-radius, 8px); padding: 6px 9px; margin: 8px 12px;
+    font-size: .833em; line-height: 1.45;
+}
+.peu-footer-error .peu-error-title { font-weight: 700; display: block; margin-bottom: 3px; }
+.peu-footer-error ul { margin: 3px 0 0; padding-inline-start: 18px; }
+.peu-footer-error ul li { margin-bottom: 2px; }
+
+/* ----------------------------------------------------------------------
+   BANDEAUX — trois familles, et leur sens ne se melange pas :
+   bleu = une information, vert = un resultat, orange = UN GESTE A FAIRE.
+   ---------------------------------------------------------------------- */
+.peu-alert  { border-radius: var(--peu-radius, 8px); padding: 7px 10px; margin: 8px 12px;
+              font-size: .833em; line-height: 1.5; }
+.peu-alert-info { background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1; }
+.peu-alert-ok   { background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
+.peu-alert-warn { background: #fff3e0; border: 1px solid #ffb74d; color: #a34a00; }
+
+/* Le guidage : il dit TOUJOURS le geste suivant. Un ecran vide avec un
+   bouton grise n'explique rien. */
+.peu-guide {
+    display: flex; align-items: flex-start; gap: 8px;
+    background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1;
+    border-radius: var(--peu-radius, 8px); padding: 8px 10px; margin: 10px 12px;
+    font-size: .917em; line-height: 1.45;
+}
+.peu-guide-n {
+    flex: 0 0 auto; min-width: 17px; height: 17px; line-height: 17px; text-align: center;
+    border-radius: 50%; background: var(--peu-blue, #2C6ED5); color: #fff;
+    font-size: .833em; font-weight: 700;
+}
+.peu-guide-suite { margin-top: 2px; opacity: .85; font-size: .909em; }
+.peu-dropzone {
+    border: 2px dashed var(--peu-border, #dde3ea); border-radius: var(--peu-radius, 8px);
+    padding: 16px 12px; margin: 0 12px 12px; text-align: center;
+    font-size: .917em; color: var(--peu-text2, #566372); line-height: 1.6;
+    cursor: pointer; transition: border-color .15s, color .15s;
+}
+.peu-dropzone:hover, .peu-dropzone.peu-drop-hover {
+    border-color: var(--peu-blue, #2C6ED5); color: var(--peu-blue, #2C6ED5);
+}
+
+/* ----------------------------------------------------------------------
+   LA PROGRESSION — bleu franc : c'est du TRAVAIL EN COURS, ni une alerte
+   (orange) ni un resultat (vert). Chiffres tabulaires, sans quoi ils
+   dansent d'un rafraichissement a l'autre.
+   ---------------------------------------------------------------------- */
+.peu-prog {
+    background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1;
+    border-radius: var(--peu-radius, 8px); padding: 7px 9px; margin: 10px 12px;
+    font-size: .917em;
+}
+.peu-prog-t { display: flex; align-items: center; gap: 6px; }
+.peu-progress-label {
+    flex: 1 1 auto; min-width: 0; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.peu-prog-pct { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.peu-progress-bar-bg { height: 6px; background: #bbdefb; border-radius: 3px; overflow: hidden; margin: 5px 0 4px; }
+.peu-progress-bar { display: block; height: 100%; width: 0; background: var(--peu-blue, #2C6ED5);
+                    border-radius: 3px; transition: width .15s linear; }
+.peu-prog-b { display: flex; align-items: center; gap: 6px; }
+.peu-prog-d { flex: 1 1 auto; font-size: .909em; font-variant-numeric: tabular-nums; }
+
+/* ----------------------------------------------------------------------
+   LE PANNEAU LATERAL — les REGLAGES et l'HISTORIQUE, jamais le travail.
+   ⚠️ Le panneau fait disparaitre son contenu des qu'on selectionne un objet
+      sur la carte : on ne peut pas y travailler.
+   ---------------------------------------------------------------------- */
+.peu-container {
+    padding: 10px; font-family: 'Rubik','Open Sans',sans-serif;
+    font-size: var(--peu-fs-base, 12px); color: var(--peu-text, #2d3748);
+}
+.peu-container h3 { margin: 0 0 8px; font-size: 1.083em; color: var(--peu-blue, #2C6ED5); }
+.peu-side-sect {
+    font-size: .833em; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--peu-blue, #2C6ED5); border-bottom: 1px solid var(--peu-border, #dde3ea);
+    margin: 12px 0 6px; padding-bottom: 3px;
+    display: flex; align-items: center; gap: 5px;
+}
+.peu-hist-row {
+    margin-bottom: 5px; padding: 5px 7px; background: var(--peu-bg, #f5f7f9);
+    border-radius: 4px; border-inline-start: 3px solid var(--peu-blue, #2C6ED5);
+    font-size: .833em;
+}
+.peu-hist-name { font-weight: 700; color: var(--peu-blue, #2C6ED5);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peu-hist-meta { color: var(--peu-text2, #566372); margin-top: 1px; }
+.peu-hist-meta.peu-jamais { color: var(--peu-orange, #f57c00); font-weight: 600; }
+.peu-drag-hint { font-size: .833em; color: var(--peu-text2, #566372); }
+
+/* La poignee de redimensionnement, en bas a droite. */
+#peu-resize {
+    position: absolute; right: 0; bottom: 0; width: 18px; height: 18px;
+    cursor: nwse-resize; z-index: 30; opacity: .45;
+    background:
+        linear-gradient(135deg, transparent 46%, var(--peu-grey, #9e9e9e) 46%, var(--peu-grey, #9e9e9e) 54%, transparent 54%),
+        linear-gradient(135deg, transparent 70%, var(--peu-grey, #9e9e9e) 70%, var(--peu-grey, #9e9e9e) 78%, transparent 78%);
+}
+#peu-resize:hover { opacity: .9; }
+#peu-overlay.peu-replie #peu-resize { display: none; }
+
+/* ⚠️ FOCUS VISIBLE SUR TOUT CE QUI EST ATTEIGNABLE AU CLAVIER : nos champs
+   posent outline:none, et sans cette regle on tabule a l'aveugle. */
+#peu-overlay :focus-visible, #peu-fab-btn:focus-visible, .peu-container :focus-visible {
+    outline: 2px solid var(--peu-blue, #2C6ED5); outline-offset: 1px; border-radius: 3px;
+}
+
+/* ⚠️ LA BALISE kbd A SON PROPRE STYLE DANS WME, en texte BLANC : sans cette
+   regle les touches s'affichent blanc sur fond clair, donc vides. Ne jamais
+   compter sur l'heritage pour une balise semantique, la page hote a le sien. */
+#peu-overlay kbd {
+    display: inline-block; background: var(--peu-bg, #f5f7f9); color: var(--peu-text, #2d3748);
+    border: 1px solid var(--peu-border, #dde3ea); border-bottom-width: 2px; border-radius: 3px;
+    padding: 0 5px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .917em; line-height: 1.5;
+}
+
+@media (max-height: 820px) { #peu-overlay { --peu-fs-base: 11px; max-height: calc(100vh - 68px); } }
+@media (max-height: 680px) { #peu-overlay { max-height: calc(100vh - 44px); } }
     `;
 
     function injectCSS() {
@@ -1342,6 +1622,79 @@
 
         return true;
     }
+
+    // ==== banc:coque ====
+    // Extrait tel quel par tools/banc-coque.mjs : rend du texte, ne touche a rien.
+
+    /**
+     * L'OSSATURE DE LA FENETRE, rendue en HTML.
+     *
+     * ⭐⭐⭐ ELLE REND DU TEXTE, ET C'EST CE QUI LA REND MESURABLE. Construite a
+     *    coups de createElement au milieu du DOM et de la carte, l'ancienne
+     *    interface n'etait verifiable que par l'oeil, dans l'editeur — et c'est
+     *    par l'oeil, tres tard, qu'on a vu que la case a cocher des lignes
+     *    etait introuvable et que le bouton qui ECRIT SUR LA CARTE etait un
+     *    glyphe colle a celui qui ferme la fenetre.
+     *
+     * ⚠️ AUCUNE DONNEE EXTERNE ICI : rien a echapper. Le nom du fichier, les
+     *    noms de lieux et tout ce qui vient du classeur entrent plus tard, par
+     *    textContent.
+     */
+    function coqueOverlay(version) {
+        return ''
+            + '<div class="peu-header" id="peu-header">'
+            +   '<div class="peu-header-left">'
+            +     '<span aria-hidden="true">' + PEU_EMOJI + '</span>'
+            +     '<span>' + esc(t('panelTitle')) + '</span>'
+            +     '<span class="peu-header-version">v' + esc(version) + '</span>'
+            +   '</div>'
+            +   '<div class="peu-header-btns">'
+            +     '<button type="button" class="peu-btn-icon" id="peu-btn-replier" title="' + esc(t('btnReduce')) + '">-</button>'
+            +     '<button type="button" class="peu-btn-icon" id="peu-btn-fermer" title="' + esc(t('btnClose')) + '">X</button>'
+            +   '</div>'
+            + '</div>'
+            + '<div id="peu-strip">'
+            +   '<span class="peu-strip-dot"></span>'
+            +   '<span class="peu-strip-info" id="peu-strip-texte">' + esc(t('noFile')) + '</span>'
+            +   '<span class="peu-strip-sep" id="peu-strip-sep1" hidden>&middot;</span>'
+            +   '<select class="peu-select" id="peu-select-onglet" hidden title="' + esc(t('selectSheet')) + '"></select>'
+            +   '<span class="peu-strip-sep" id="peu-strip-sep2" hidden>&middot;</span>'
+            +   '<span class="peu-strip-info" id="peu-strip-compte" hidden></span>'
+            +   '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" id="peu-btn-fichier"'
+            +          ' title="' + esc(t('chooseFileTitle')) + '" style="margin-inline-start:auto">'
+            +     esc(t('chooseFile')) + '</button>'
+            + '</div>'
+            + '<div id="peu-body"></div>'
+            + '<div class="peu-footer" id="peu-footer">'
+            +   '<div class="peu-footer-help" id="peu-footer-help">' + esc(t('footerHelpVide')) + '</div>'
+            +   '<div class="peu-footer-actions">'
+            +     '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" id="peu-btn-export" hidden'
+            +            ' title="' + esc(t('btnExportTitle')) + '">' + esc(t('btnExport')) + '</button>'
+            +     '<button type="button" class="peu-btn peu-btn-primary" id="peu-btn-appliquer" disabled'
+            +            ' title="' + esc(t('btnApplyTitle')) + '">' + esc(t('btnApply')) + '</button>'
+            +   '</div>'
+            + '</div>'
+            + '<div id="peu-resize" aria-hidden="true"></div>';
+    }
+
+    /**
+     * LE LIBELLE DU BOUTON QUI ECRIT SUR LA CARTE.
+     *
+     * ⭐⭐⭐⭐ IL DIT COMBIEN DE LIGNES IL VA POSER. « Appliquer » seul ne dit pas
+     *    sur quoi : on clique sans savoir si l'on touche un lieu ou quarante.
+     *    Le compte est la seule chose qui distingue un geste anodin d'un geste
+     *    qu'on veut relire avant.
+     *
+     * ⚠️ ZERO EST UN RESULTAT : on ne cache pas le bouton, on le desactive en
+     *    disant qu'il n'y a rien de coche. Un bouton qui disparait se lit comme
+     *    une panne.
+     */
+    function libelleAppliquer(nbCoche) {
+        return nbCoche === 0 ? t('btnApplyNone')
+             : nbCoche === 1 ? t('btnApplyOne')
+             : t('btnApplyN', nbCoche);
+    }
+    // ==== /banc:coque ====
 
     async function initScript() {
         _peuLang = detectLang();
