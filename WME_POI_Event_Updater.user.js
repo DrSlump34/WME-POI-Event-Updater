@@ -80,6 +80,7 @@
                 sheetHeaderErr:'En-têtes de colonnes absentes ou non reconnues — onglet ignoré',
                 sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
                 plusApplique:'✔ appliqué :', plusMain:'✋ à poser à la main :', plusRefus:'⚠ non reconnu :',
+                plusConforme:'· déjà conforme :', plusAvant:'remplace :',
                 urlInvalid:'URL invalide',
                 urlBadHost:'URL non reconnue (doit être waze.com ou beta.waze.com/…/editor)',
                 urlNoEnv:'paramètre env= manquant', urlBadLat:'lat= absent ou invalide',
@@ -131,6 +132,7 @@
                 sheetHeaderErr:'Column headers missing or unrecognised — sheet ignored',
                 sheetHeaderFallback:'headers not recognised: columns read by position (A = permalink, B = name, C = description)',
                 plusApplique:'✔ applied:', plusMain:'✋ to set by hand:', plusRefus:'⚠ not recognised:',
+                plusConforme:'· already correct:', plusAvant:'replaces:',
                 urlInvalid:'Invalid URL',
                 urlBadHost:'Unrecognised URL (must be waze.com or beta.waze.com/…/editor)',
                 urlNoEnv:'missing env= parameter', urlBadLat:'lat= missing or invalid',
@@ -769,16 +771,29 @@
     }
 
     /**
-     * Ce que le lieu porte VRAIMENT après écriture, comparé à ce qu'on demandait.
+     * Ce que le lieu porte DÉJÀ, comparé à ce que le classeur demande.
      *
-     * ⭐⭐⭐⭐ C'EST LE SEUL CONTRÔLE QUI NE MENTE PAS. Le SDK ne signale ni un champ
-     *    inconnu, ni une valeur hors énumération : sans relecture, « appliqué »
-     *    ne veut dire que « l'appel n'a pas levé d'exception ».
+     * ⭐⭐⭐⭐ LA MÊME COMPARAISON RÉPOND À DEUX QUESTIONS, ET C'EST POURQUOI ELLE NE
+     *    S'APPELLE PLUS « vérifierPose » :
+     *      · AVANT d'écrire — que reste-t-il à appliquer ? `differents` le dit, et
+     *        c'est ce qui fait qu'un lieu déjà conforme ne s'annonce pas à modifier ;
+     *      · APRÈS avoir écrit — qu'est-ce qui a vraiment été posé ? Le SDK ne
+     *        signale ni un champ inconnu, ni une valeur hors énumération : sans
+     *        cette relecture, « appliqué » ne voudrait dire que « l'appel n'a pas
+     *        levé d'exception ».
      *
-     * @param attributs les attributs du lieu RELUS après l'écriture
+     * @param attributs les attributs du lieu, lus dans le modèle de WME
      */
-    function verifierPose(attributs, aPoser) {
-        const confirmes = [], manques = [];
+    /** La valeur que le lieu porte pour une cible, plate ou sous categoryAttributes. */
+    function valeurDuLieu(attributs, cible) {
+        const point = cible.indexOf('.');
+        return point === -1
+            ? attributs[cible]
+            : ((attributs.categoryAttributes || {})[cible.slice(0, point)] || {})[cible.slice(point + 1)];
+    }
+
+    function comparerAuLieu(attributs, aPoser) {
+        const identiques = [], differents = [];
         const memeValeur = (a, b) => {
             if (Array.isArray(a) || Array.isArray(b)) {
                 const x = (a || []).slice().sort(), y = (b || []).slice().sort();
@@ -789,14 +804,10 @@
 
         Object.keys(aPoser).forEach(cible => {
             if (CIBLES_HERITEES.includes(cible)) return;
-            const point = cible.indexOf('.');
-            const lu = point === -1
-                ? attributs[cible]
-                : ((attributs.categoryAttributes || {})[cible.slice(0, point)] || {})[cible.slice(point + 1)];
-            (memeValeur(lu, aPoser[cible]) ? confirmes : manques).push(cible);
+            (memeValeur(valeurDuLieu(attributs, cible), aPoser[cible]) ? identiques : differents).push(cible);
         });
 
-        return { confirmes, manques };
+        return { identiques, differents };
     }
     // ==== /banc:pose ====
 
@@ -856,9 +867,21 @@
      *    que le script ne sait pas poser doit se VOIR, sinon elle est perdue sans
      *    trace — et personne ne saura qu'il fallait la poser à la main.
      */
-    function rendreComplements(doc, valeurs, traduire) {
-        const poses = Object.keys(valeurs.aPoser).filter(c => c !== 'name' && c !== 'description');
-        if (!poses.length && !valeurs.montres.length && !valeurs.refus.length) return null;
+    function rendreComplements(doc, valeurs, traduire, attributs) {
+        /* ⭐⭐⭐⭐ ON NE MONTRE EN VERT QUE CE QUI CHANGE. Sans l'état du lieu, l'écran
+           annonçait « appliqué » sur des valeurs que la carte portait déjà : sept
+           pastilles pour un parking où rien n'était à faire, et l'œil finit par
+           ne plus les lire. Le classeur d'un parc entier porte l'état COMPLET de
+           chaque lieu — la plupart des valeurs y sont donc conformes.
+           ⚠️ Sans `attributs` (lieu non chargé), on montre tout : ne rien montrer
+              faute d'avoir pu comparer serait le pire des deux. */
+        const ecarts = attributs ? comparerAuLieu(attributs, valeurs.aPoser) : null;
+        const aChanger = ecarts ? ecarts.differents : Object.keys(valeurs.aPoser);
+        const poses = aChanger.filter(c => c !== 'name' && c !== 'description');
+        const dejaConformes = ecarts
+            ? ecarts.identiques.filter(c => c !== 'name' && c !== 'description').length : 0;
+
+        if (!poses.length && !valeurs.montres.length && !valeurs.refus.length && !dejaConformes) return null;
 
         /* ⚠️⚠️ CE BLOC VIT DANS LA LIGNE DU LIEU, PAS DANS UNE LIGNE À PART.
            Deux raisons, et la première suffit : le tableau se TRIE par colonne —
@@ -891,8 +914,22 @@
         if (poses.length) {
             zone.appendChild(titre(traduire('plusApplique')));
             poses.forEach(cible => {
-                zone.appendChild(pastille('pose', libelleDeCible(cible), valeurLisible(valeurs.aPoser[cible])));
+                const el = pastille('pose', libelleDeCible(cible), valeurLisible(valeurs.aPoser[cible]));
+                /* ⚠️ CE QUE LA VALEUR REMPLACE, EN INFOBULLE : un tableau écrase tout
+                   son contenu dans WME, et sans cela on efface sans le savoir ce
+                   qu'un autre éditeur avait renseigné. */
+                const avant = attributs ? valeurDuLieu(attributs, cible) : undefined;
+                if (avant !== undefined && avant !== null && String(avant) !== '') {
+                    el.title = traduire('plusAvant') + ' ' + valeurLisible(avant);
+                }
+                zone.appendChild(el);
             });
+        }
+
+        /* Ce qui est déjà conforme se compte, il ne s'énumère pas : c'est le cas
+           ordinaire quand le classeur porte l'état complet du parc. */
+        if (dejaConformes) {
+            zone.appendChild(titre(traduire('plusConforme') + ' ' + dejaConformes));
         }
         if (valeurs.montres.length) {
             zone.appendChild(titre(traduire('plusMain')));
@@ -1640,6 +1677,18 @@
             const oldDesc = venue?.attributes?.description || '';
             const venueLoaded = !!venue; // false si préchargement échoué
 
+            /* Ce que le lieu porte déjà, et combien de champs du lot D2 en diffèrent.
+               ⚠️ Un lieu non chargé ne se compare à rien : on compte alors TOUS les
+                  champs comme à appliquer, plutôt que de conclure « rien à faire »
+                  d'une absence de mesure. */
+            const attributsDuLieu = venueLoaded ? venue.attributes : null;
+            const champsDiff = p.valeurs
+                ? (attributsDuLieu
+                    ? comparerAuLieu(attributsDuLieu, p.valeurs.aPoser).differents
+                        .filter(c => c !== 'name' && c !== 'description').length
+                    : Object.keys(p.valeurs.aPoser).filter(c => c !== 'name' && c !== 'description').length)
+                : 0;
+
             // Données de tri/filtre stockées sur la ligne (mises à jour si l'utilisateur édite)
             tr.dataset.oldName = oldName;
             tr.dataset.oldDesc = oldDesc;
@@ -1660,7 +1709,12 @@
             function updateDiff() {
                 const nameChanged = tr.dataset.newName !== tr.dataset.oldName;
                 const descChanged = tr.dataset.newDesc !== tr.dataset.oldDesc;
-                const isDiff = nameChanged || descChanged;
+                /* ⭐⭐⭐⭐ LES CHAMPS DU LOT D2 COMPTENT AUSSI, et c'est un ESSAI DANS
+                   WME qui l'a exigé : l'aperçu annonçait « ✅ Aucune modification »
+                   sur un parking qui avait quatre champs à poser. On ferme la
+                   fenêtre en confiance, et rien n'est appliqué. Aucun banc ne
+                   pouvait le voir — cet indicateur n'existe que dans l'éditeur. */
+                const isDiff = nameChanged || descChanged || champsDiff > 0;
                 tr.dataset.hasDiff = isDiff ? 'true' : 'false';
                 // Ne pas écraser hard/sae
                 if (lockStatus === 'ok') tr.classList.toggle('peu-row-diff', isDiff);
@@ -1747,9 +1801,10 @@
             txtArea.addEventListener('input', () => { tr.dataset.newDesc = txtArea.value; updateDiff(); applyFilters(); });
             tdDesc.appendChild(txtArea);
 
-            /* Les champs du lot D2, s il y en a : dans LA MEME cellule, pour survivre au tri. */
+            /* Les champs du lot D2, s'il y en a : dans LA MÊME cellule, pour survivre au tri.
+               ⚠️ Le lieu est passé au rendu pour qu'il ne montre que ce qui CHANGE. */
             if (p.valeurs) {
-                const complements = rendreComplements(document, p.valeurs, t);
+                const complements = rendreComplements(document, p.valeurs, t, attributsDuLieu);
                 if (complements) tdDesc.appendChild(complements);
             }
 
@@ -1762,6 +1817,7 @@
             tdCB.appendChild(cb);
 
             tr._inputs = {vid, inpName, txtArea, cb, valeurs: p.valeurs};
+            tr.dataset.champsDiff = String(champsDiff);
 
             // Initialiser l'indicateur diff au chargement
             updateDiff();
@@ -1981,22 +2037,22 @@
                                 const sdk = obtenirSdk();
                                 sdk.DataModel.Venues.updateVenue({ venueId: vid, ...maj });
                                 const relu = W.model.venues.getObjectById(vid);
-                                poseSdk = verifierPose(relu ? relu.attributes : {}, aPoser);
+                                poseSdk = comparerAuLieu(relu ? relu.attributes : {}, aPoser);
                             } catch (e) {
-                                poseSdk = { confirmes: [], manques: Object.keys(maj), erreur: e.message };
+                                poseSdk = { identiques: [], differents: Object.keys(maj), erreur: e.message };
                             }
                         }
                         if (ignores.length) {
-                            poseSdk = poseSdk || { confirmes: [], manques: [] };
-                            poseSdk.manques = poseSdk.manques.concat(ignores);
+                            poseSdk = poseSdk || { identiques: [], differents: [] };
+                            poseSdk.differents = poseSdk.differents.concat(ignores);
                         }
 
                         allResults.push({
                             oldName, newName: inpName.value,
                             oldDesc, newDesc: txtArea.value,
-                            status: poseSdk && poseSdk.manques.length ? 'partial' : 'applied',
-                            poses: poseSdk ? poseSdk.confirmes : [],
-                            manques: poseSdk ? poseSdk.manques : []
+                            status: poseSdk && poseSdk.differents.length ? 'partial' : 'applied',
+                            poses: poseSdk ? poseSdk.identiques : [],
+                            manques: poseSdk ? poseSdk.differents : []
                         });
                     } else {
                         failed.push(item);

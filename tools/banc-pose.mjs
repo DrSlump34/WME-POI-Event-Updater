@@ -14,9 +14,9 @@
 
 import { charger } from './extraire.mjs';
 
-const { CHAMPS, mapChamps, lireValeurs, construireMaj, verifierPose } =
+const { CHAMPS, mapChamps, lireValeurs, construireMaj, comparerAuLieu } =
     charger(['champs', 'colonnes', 'pose'],
-        ['CHAMPS', 'mapChamps', 'lireValeurs', 'construireMaj', 'verifierPose']);
+        ['CHAMPS', 'mapChamps', 'lireValeurs', 'construireMaj', 'comparerAuLieu']);
 
 let reussis = 0;
 const echecs = [];
@@ -69,33 +69,33 @@ const apresEcriture = {
     name: 'Parking P5', phone: '04 90 00 00 00', services: ['SECURITY', 'WI_FI'],
     categoryAttributes: { PARKING_LOT: { costType: 'MODERATE', paymentType: ['CASH'] } }
 };
-r = verifierPose(apresEcriture, {
+r = comparerAuLieu(apresEcriture, {
     name: 'Parking P5', phone: '04 90 00 00 00', services: ['WI_FI', 'SECURITY'],
     'PARKING_LOT.costType': 'MODERATE', 'PARKING_LOT.paymentType': ['CASH']
 });
 verifier('Tout ce qui est demandé est retrouvé — l’ordre d’une liste ne compte pas',
-    { confirmes: ['phone', 'services', 'PARKING_LOT.costType', 'PARKING_LOT.paymentType'].sort(), manques: [] },
-    { confirmes: r.confirmes.slice().sort(), manques: r.manques });
+    { identiques: ['phone', 'services', 'PARKING_LOT.costType', 'PARKING_LOT.paymentType'].sort(), differents: [] },
+    { identiques: r.identiques.slice().sort(), differents: r.differents });
 
 /* Le cas qui justifie tout : le SDK n'a rien posé, et n'a rien dit. */
-r = verifierPose({ phone: '04 90 00 00 00', categoryAttributes: { PARKING_LOT: {} } }, {
+r = comparerAuLieu({ phone: '04 90 00 00 00', categoryAttributes: { PARKING_LOT: {} } }, {
     phone: '04 90 00 00 00', 'PARKING_LOT.costType': 'MODERATE'
 });
 verifier('🔴 UN CHAMP NON POSÉ EST DÉTECTÉ, même sans erreur du SDK',
-    { confirmes: ['phone'], manques: ['PARKING_LOT.costType'] }, r);
+    { identiques: ['phone'], differents: ['PARKING_LOT.costType'] }, r);
 
-r = verifierPose({ categoryAttributes: { PARKING_LOT: { costType: 'gratuit' } } },
+r = comparerAuLieu({ categoryAttributes: { PARKING_LOT: { costType: 'gratuit' } } },
     { 'PARKING_LOT.costType': 'FREE' });
 verifier('🔴 UNE VALEUR POSÉE MAIS DIFFÉRENTE est détectée',
-    ['PARKING_LOT.costType'], r.manques);
+    ['PARKING_LOT.costType'], r.differents);
 
-r = verifierPose({ services: ['WI_FI'] }, { services: ['WI_FI', 'RESTROOMS'] });
+r = comparerAuLieu({ services: ['WI_FI'] }, { services: ['WI_FI', 'RESTROOMS'] });
 verifier('Une liste incomplète est un manque, pas une réussite',
-    ['services'], r.manques);
+    ['services'], r.differents);
 
-r = verifierPose({}, { name: 'X', description: 'Y' });
+r = comparerAuLieu({}, { name: 'X', description: 'Y' });
 verifier('Les champs du mécanisme hérité ne sont pas jugés ici',
-    { confirmes: [], manques: [] }, r);
+    { identiques: [], differents: [] }, r);
 
 /* ------------------------------------------------------------------ *
  * 4. LA CHAÎNE ENTIÈRE : une ligne de classeur → l'objet envoyé       *

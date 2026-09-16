@@ -46,7 +46,7 @@ const bloc = (nom) => {
     return source.slice(d, f);
 };
 const { mapChamps, lireValeurs, rendreComplements } = new Function(
-    bloc('champs') + bloc('colonnes') + bloc('apercu') +
+    bloc('champs') + bloc('colonnes') + bloc('pose') + bloc('apercu') +
     '\nreturn { mapChamps, lireValeurs, rendreComplements };'
 )();
 
@@ -84,6 +84,23 @@ const CAS = [
                 '7j/7 de 6h à 23h', 'Abonnement ; Jetons', 'Toilettes ; Wi-Fi']
     }
 ];
+
+/* Les deux cas qui ont motive la correction du 16/09 : sans l etat du lieu,
+   l apercu annoncait « applique » sur des valeurs deja posees. */
+CAS.push(
+    {
+        titre: 'LE LIEU PORTE DEJA TOUT : rien a appliquer, et l ecran le dit',
+        entetes: ['POI Permalink', 'POI Name', 'Parking Cost', 'Parking Payment', 'Parking Spots'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P5', 'Modéré', 'Espèces ; Carte de crédit', '101-300'],
+        lieu: { categoryAttributes: { PARKING_LOT: { costType: 'MODERATE', paymentType: ['CREDIT', 'CASH'], estimatedNumberOfSpots: 'R_101_TO_300' } } }
+    },
+    {
+        titre: 'UNE SEULE valeur change : elle seule est en vert, le reste est compte',
+        entetes: ['POI Permalink', 'POI Name', 'Parking Cost', 'Parking Payment', 'Parking Spots'],
+        cells: ['https://www.waze.com/editor?venues=1', 'Parking P5', 'Gratuit', 'Espèces ; Carte de crédit', '101-300'],
+        lieu: { categoryAttributes: { PARKING_LOT: { costType: 'MODERATE', paymentType: ['CREDIT', 'CASH'], estimatedNumberOfSpots: 'R_101_TO_300' } } }
+    }
+);
 
 const sortie = document.getElementById('sortie');
 CAS.forEach(cas => {
@@ -127,7 +144,11 @@ CAS.forEach(cas => {
     tdCb.appendChild(cb);
 
     const valeurs = lireValeurs(cas.cells, mapChamps(cas.entetes, false));
-    const complements = rendreComplements(document, valeurs, (cle) => ({ plusApplique: '✔ appliqué :', plusMain: '✋ à poser à la main :', plusRefus: '⚠ non reconnu :' }[cle] || cle));
+    const traduire = (cle) => ({
+        plusApplique: '✔ appliqué :', plusMain: '✋ à poser à la main :',
+        plusRefus: '⚠ non reconnu :', plusConforme: '· déjà conforme :', plusAvant: 'remplace :'
+    }[cle] || cle);
+    const complements = rendreComplements(document, valeurs, traduire, cas.lieu);
     if (complements) tdDesc.appendChild(complements);
     else {
         const vide = document.createElement('tr');
