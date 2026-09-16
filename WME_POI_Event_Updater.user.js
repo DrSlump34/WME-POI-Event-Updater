@@ -2978,12 +2978,20 @@
     let _peuInited = false;
     function _peuInit() { if (_peuInited) return; _peuInited = true; initScript(); }
 
-    if (W?.userscripts?.state?.isReady) {
+    /* ⚠️⚠️ `typeof` ET NON `W?.` : l’optional chaining protège d’un objet NUL,
+       pas d’une variable JAMAIS DÉCLARÉE. Si le script s’exécute avant que WME
+       ait posé son `W`, `W?.x` lève une ReferenceError — et elle survient AVANT
+       que la moindre ligne d’interface soit construite. Le script meurt alors
+       en entier, sans rien poser : ni feuille de style, ni bouton, ni onglet.
+       C’est exactement le symptôme d’un script « qui n’a pas chargé ». */
+    const wmePret = () => typeof W !== 'undefined' && W?.userscripts?.state?.isReady;
+
+    if (wmePret()) {
         _peuInit();
     } else {
         document.addEventListener('wme-ready', _peuInit, {once:true});
         const fallback = setInterval(() => {
-            if (W?.userscripts?.state?.isReady) { clearInterval(fallback); _peuInit(); }
+            if (wmePret()) { clearInterval(fallback); _peuInit(); }
         }, 500);
         setTimeout(() => clearInterval(fallback), 30000);
     }

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Le script demarre-t-il ? — WME POI Event Updater</title>
+<!--
+  ⭐⭐⭐⭐ LE BANC NODE NE SUFFIT PAS. Ses bouchons sont trop complaisants : un
+     querySelector qui rend toujours un objet masque exactement l'erreur qu'on
+     cherche. Ici, c'est un VRAI navigateur, un VRAI DOM, et le script s'execute
+     tel qu'il est servi.
+
+  ⚠️ IL N'Y A PAS DE WME : le script doit donc s'arreter proprement en attendant
+     l'editeur, sans rien lever. S'il leve quelque chose ICI, il ne demarrera pas
+     davantage dans l'editeur.
+
+  UTILISATION : php -S 127.0.0.1:8131 -t .  puis /tools/banc-demarrage.html
+-->
+<style>
+  body { font: 14px/1.5 'Segoe UI', Arial, sans-serif; margin: 0; padding: 24px; background: #1e2430; color: #e7eaf3; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  .ok { color: #7ddb8a; } .ko { color: #ff8a80; }
+  pre { background: #11151d; padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+  table td { padding: 2px 14px 2px 0; }
+</style>
+
+<h1>Le script démarre-t-il dans un vrai navigateur ?</h1>
+<div id="sortie">mesure en cours…</div>
+
+<script>
+(async () => {
+  const erreurs = [];
+  window.addEventListener('error', (e) => erreurs.push({ quoi: 'erreur', message: e.message, ligne: e.lineno }));
+  window.addEventListener('unhandledrejection', (e) => erreurs.push({ quoi: 'promesse rejetée', message: String(e.reason && e.reason.message || e.reason) }));
+
+  /* ⚠️ LA BIBLIOTHEQUE D'ABORD : le script la suppose chargee par @require. Sans
+     elle il se replie proprement, mais on veut eprouver le chemin normal. */
+  await new Promise((r) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = r; s.onerror = r;
+    document.head.appendChild(s);
+  });
+
+  const t0 = performance.now();
+  const source = await (await fetch('../WME_POI_Event_Updater.user.js')).text();
+  let leve = null;
+  try {
+    const el = document.createElement('script');
+    el.textContent = source;
+    document.head.appendChild(el);
+  } catch (e) {
+    leve = e;
+  }
+  await new Promise((r) => setTimeout(r, 400));
+
+  const dit = (ok, texte) => '<tr><td class="' + (ok ? 'ok' : 'ko') + '">' + (ok ? 'OK' : 'A VOIR') + '</td><td>' + texte + '</td></tr>';
+  const lignes = [];
+  lignes.push(dit(!leve, leve ? 'exception a l’insertion : ' + leve.message : 'le script s’insere sans lever'));
+  lignes.push(dit(erreurs.length === 0, erreurs.length ? erreurs.length + ' erreur(s) captee(s)' : 'aucune erreur captee'));
+  lignes.push(dit(!!window.XLSX, window.XLSX ? 'la bibliotheque XLSX est la' : 'XLSX absente — le repli du script doit le dire'));
+  /* Sans WME, le script doit ATTENDRE : il ne pose ni style ni bouton. */
+  lignes.push(dit(!document.getElementById('peu-style'),
+    'sans WME, aucune feuille posee (c’est le comportement attendu : il attend l’editeur)'));
+  lignes.push(dit(true, 'longueur du source : ' + source.length + ' octets, lu en ' + Math.round(performance.now() - t0) + ' ms'));
+
+  document.getElementById('sortie').innerHTML =
+    '<table>' + lignes.join('') + '</table>'
+    + (erreurs.length ? '<h1 style="margin-top:16px">Ce qui a ete leve</h1><pre>'
+        + erreurs.map((e) => e.quoi + ' : ' + e.message + (e.ligne ? ' (ligne ' + e.ligne + ')' : '')).join('\n')
+        + '</pre>' : '');
+})();
+</script>
+</html>
