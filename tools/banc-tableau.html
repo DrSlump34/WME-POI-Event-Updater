@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>Banc du tableau — WME POI Event Updater</title>
+<!--
+  ⭐⭐⭐ IL MONTE LE VRAI CSS ET LE VRAI RENDU, lus dans le userscript servi. La
+     maquette, elle, est une image de ce qu'on veut ; celui-ci montre ce que le
+     script FAIT. Une correction faite dans la maquette sans toucher au script
+     ne se verrait pas ici — c'est tout l'interet.
+
+  ⚠️ L'extension refuse les URL file:// — servir le depot :
+        php -S 127.0.0.1:8130 -t .
+     puis ouvrir http://127.0.0.1:8130/tools/banc-tableau.html
+
+  ⚠️ LES SIX ETATS SONT MONTRES ENSEMBLE, ce qui n'arrive jamais en vrai : c'est
+     la seule facon de voir qu'ils se distinguent les uns des autres.
+-->
+<style>
+  body { margin: 0; padding: 20px; background: #6b7d8f; font-family: 'Rubik','Open Sans',sans-serif; }
+  h1 { font-size: 15px; color: #fff; margin: 0 0 4px; }
+  p.note { font-size: 12px; color: #dfe6ee; margin: 0 0 14px; max-width: 760px; line-height: 1.5; }
+  /* ⚠️ LA LARGEUR DE LA VRAIE FENETRE : mesurer un tableau etale sur 1500 px,
+     c est mesurer une mise en page qui n existe nulle part. */
+  .cadre { width: 820px; max-width: 100%; background: #fff; border-radius: 10px;
+           overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.25); }
+  .mesures { margin-top: 16px; background: #fff; border-radius: 8px; padding: 10px 14px; font-size: 12px; max-width: 760px; }
+  .mesures h2 { font-size: 12px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .06em; color: #2C6ED5; }
+  .mesures td { padding: 2px 10px 2px 0; }
+  .ok { color: #2e7d32; font-weight: 600; }
+  .ko { color: #c62828; font-weight: 700; }
+</style>
+
+<h1>Le tableau, tel que le script le rend</h1>
+<p class="note">
+  CSS et fonctions de rendu lus dans <code>WME_POI_Event_Updater.user.js</code>.
+  Les six états sont montrés ensemble. Ce qu'on regarde : la case se voit-elle ?
+  Distingue-t-on les états sans lire les infobulles ?
+</p>
+
+<div class="cadre" id="cadre"></div>
+<div class="mesures" id="mesures"></div>
+
+<script>
+(async () => {
+  const src = await (await fetch('../WME_POI_Event_Updater.user.js')).text();
+
+  /* Le CSS : on le pose tel quel, sans quoi les largeurs et les fonds ne valent rien. */
+  const dCss = src.indexOf('const CSS = `') + 'const CSS = `'.length;
+  const fCss = src.indexOf('\n    `;', dCss);
+  const style = document.createElement('style');
+  style.textContent = src.slice(dCss, fCss);
+  document.head.appendChild(style);
+
+  /* Les fonctions de rendu, avec leurs deux dependances. */
+  const bloc = src.slice(src.indexOf('// ==== banc:ligne ===='), src.indexOf('// ==== /banc:ligne ===='));
+  const prelude = `
+    function esc(v) {
+        return String(v === undefined || v === null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    const LIB = {
+        colSelect:'Poser', colEtat:'État', colName:'Nom', colDesc:'Description',
+        masterCbTitle:'Tout cocher / décocher', triTitre:'Trier sur cette colonne',
+        cbTitre:'Poser cette ligne dans l’éditeur',
+        cbFige:'Cette ligne ne peut pas être posée — voir le badge d’état',
+        locateTitle:'Centrer la carte sur ce lieu',
+        colNameTitle:'Le nom à poser', colDescTitle:'La description à poser',
+        badgeOffTitle:'Lieu introuvable dans l’éditeur',
+        lockHardTitle:'Verrouillé au-dessus de votre rang',
+        badgeSaeTitle:'Sera proposé en Suggest an Edit',
+        badgeRienTitle:'Rien à poser',
+    };
+    function t(cle, ...a) {
+        const v = LIB[cle];
+        if (typeof v === 'function') return v(...a);
+        if (v !== undefined) return v;
+        if (cle === 'badgeDiffTitle') return a[0] + ' champ(s) à poser';
+        if (cle === 'badgePerteTitle') return 'Appliquer RETIRERAIT ' + a[0] + ' valeur(s)';
+        return cle;
+    }
+  `;
+  const { ligneApercu, enteteApercu } =
+    new Function(prelude + bloc + '\nreturn { ligneApercu, enteteApercu };')();
+
+  /* Les six etats, dans l'ordre ou on les rencontre. */
+  const cas = [
+    { titre: 'a poser',        v: { idx: 1, nom: 'Parking Moto - Avignon - TGV', desc: '', ancienNom: 'Parking Moto - Avignon - TGV', ancienDesc: '', charge: true, verrou: 'ok', pertes: 0, champsDiff: 4, nomChange: false, descChange: false } },
+    { titre: 'rien a faire',   v: { idx: 2, nom: 'Parking P1 - Avignon TGV - Courte Duree', desc: '30 minutes gratuites', ancienNom: 'Parking P1 - Avignon TGV - Courte Duree', ancienDesc: '30 minutes gratuites', charge: true, verrou: 'ok', pertes: 0, champsDiff: 0, nomChange: false, descChange: false } },
+    { titre: 'RETIRE',         v: { idx: 3, nom: 'Parking P5 - Longue Duree', desc: '', ancienNom: 'Parking P5 - Longue Duree', ancienDesc: '', charge: true, verrou: 'ok', pertes: 1, champsDiff: 2, nomChange: false, descChange: false } },
+    { titre: 'nom modifie',    v: { idx: 4, nom: 'Parking P6 - Avignon - TGV', desc: 'Tarif reduit', ancienNom: 'Parking P6', ancienDesc: '', charge: true, verrou: 'ok', pertes: 0, champsDiff: 1, nomChange: true, descChange: true } },
+    { titre: 'verrouille',     v: { idx: 5, nom: 'Parking P3 - Premium', desc: '', ancienNom: 'Parking P3 - Premium', ancienDesc: '', charge: true, verrou: 'hard', niveau: 5, pertes: 0, champsDiff: 3, nomChange: false, descChange: false } },
+    { titre: 'introuvable',    v: { idx: 6, nom: 'Buvette du hall 3', desc: '', ancienNom: '', ancienDesc: '', charge: false, verrou: 'ok', pertes: 0, champsDiff: 2, nomChange: true, descChange: false } },
+  ];
+
+  document.getElementById('cadre').innerHTML =
+    '<table class="peu-table">' + enteteApercu() + '<tbody>'
+    + cas.map(c => ligneApercu(c.v)).join('') + '</tbody></table>';
+
+  /* ------------------------------------------------------------------
+     LES MESURES — ce que l'oeil ne tranche pas tout seul.
+     ------------------------------------------------------------------ */
+  const lignes = [...document.querySelectorAll('.peu-ligne')];
+  const cases = [...document.querySelectorAll('.peu-ligne .peu-checkbox')];
+  const r0 = cases[0].getBoundingClientRect();
+  const rLigne = lignes[0].getBoundingClientRect();
+  const tete = document.querySelector('.peu-table thead th');
+
+  /* Le lisere de chaque etat doit etre VISIBLE et DIFFERENT d'un etat a l'autre. */
+  const liseres = lignes.map((tr, i) => ({
+    etat: cas[i].titre,
+    couleur: getComputedStyle(tr.querySelector('td')).borderInlineStartColor,
+    largeur: getComputedStyle(tr.querySelector('td')).borderInlineStartWidth,
+  }));
+  /* ⚠️ SIX CAS, MAIS CINQ ETATS : deux des cas sont des ecarts ordinaires, et
+     ils DOIVENT porter le meme lisere. Compter six couleurs accusait un code
+     correct — un controle trop exigeant fait chercher un defaut inexistant. */
+  const etatsAttendus = new Set(lignes.map(tr => (tr.className.match(/peu-row-(\w+)/) || [])[1])).size;
+  const distinctes = new Set(liseres.map(l => l.couleur)).size;
+
+  const dit = (ok, texte) => '<span class="' + (ok ? 'ok' : 'ko') + '">' + (ok ? 'OK' : 'A VOIR') + '</span> ' + texte;
+
+  document.getElementById('mesures').innerHTML =
+    '<h2>Mesures</h2><table>'
+    + '<tr><td>' + dit(r0.width >= 14 && r0.height >= 14,
+        'la case fait ' + Math.round(r0.width) + ' x ' + Math.round(r0.height) + ' px (14 minimum)') + '</td></tr>'
+    + '<tr><td>' + dit(r0.left - rLigne.left < 40,
+        'elle est a ' + Math.round(r0.left - rLigne.left) + ' px du bord de la ligne (en tete, pas au bout)') + '</td></tr>'
+    + '<tr><td>' + dit(tete.textContent.trim().length > 0,
+        'sa colonne porte un intitule : « ' + tete.textContent.trim() + ' »') + '</td></tr>'
+    + '<tr><td>' + dit(distinctes === etatsAttendus,
+        distinctes + ' liseres distincts pour ' + etatsAttendus + ' etats') + '</td></tr>'
+    + '<tr><td>' + dit(liseres.every(l => parseFloat(l.largeur) >= 3),
+        'chaque lisere fait au moins 3 px') + '</td></tr>'
+    + '<tr><td>' + dit(document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        'aucun debordement horizontal') + '</td></tr>'
+    + '</table>'
+    + '<h2 style="margin-top:10px">Liseres</h2><table>'
+    + liseres.map(l => '<tr><td>' + l.etat + '</td><td style="color:' + l.couleur + ';font-weight:700">'
+        + l.couleur + '</td></tr>').join('')
+    + '</table>';
+})();
+</script>
+</html>

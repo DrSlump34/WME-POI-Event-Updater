@@ -335,7 +335,7 @@
     width: min(820px, calc(100vw - 24px));
     background: var(--peu-surface, #fff);
     border: 1px solid var(--peu-border, #dde3ea); border-radius: 12px;
-    box-shadow: var(--peu-shadow);
+    box-shadow: var(--peu-shadow, 0 8px 32px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.12));
     display: none; flex-direction: column;
     max-height: calc(100vh - 110px);
     font-family: 'Rubik','Open Sans',sans-serif;
@@ -441,8 +441,14 @@
 /* ----------------------------------------------------------------------
    CHAMPS
    ---------------------------------------------------------------------- */
+/* ⚠️⚠️ BOX-SIZING SUR LE COMPOSANT LUI-MEME, et pas seulement herite
+   d un ancetre : un champ en largeur 100 pour cent sans lui deborde de sa
+   colonne de la largeur de son padding et de sa bordure. La regle globale
+   plus haut ne couvre que ce qui vit DANS la fenetre — un composant sorti
+   de la pour un banc, ou pose ailleurs demain, perdrait la regle sans que
+   rien ne le dise. */
 .peu-input, .peu-textarea, .peu-search, .peu-select {
-    width: 100%; padding: .25em .45em;
+    box-sizing: border-box; width: 100%; padding: .25em .45em;
     border: 1px solid var(--peu-border, #dde3ea); border-radius: var(--peu-radius, 8px);
     font-family: inherit; font-size: 1em;
     background: #fff; color: var(--peu-text, #2d3748);
