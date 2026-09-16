@@ -10,7 +10,7 @@ in a spreadsheet once and let the script apply it.
 [![Install from GreasyFork](https://img.shields.io/badge/install-GreasyFork-red)](https://greasyfork.org/scripts/578776)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![WME POI Event Updater](Capture%200.48.png)
+![WME POI Event Updater](Capture%200.52.jpg)
 
 ## How it works
 
@@ -55,11 +55,24 @@ preview so you can set them by hand.
 ⚠️ **A list replaces the whole field in WME.** If a row lists fewer values than the place already
 has, the preview shows it in **orange**, says what it **removes**, and leaves the row **unticked**.
 
+## The window (0.52)
+
+Everything you do lives in a floating window, opened by the map button. Drop a workbook
+anywhere on it, or click to pick one. The window can be dragged by its header, resized from
+the corner, and collapsed; a double-click on the header puts it back.
+
+Each row carries its state in **three** signs — a left border, a background and a badge — so
+it stays readable under the hover. The tick box is the **first** column, and **Apply** is a
+named button that says how many rows it will write. Nothing is written to the map until you
+press it, and nothing is ever saved: you review in WME, then click Save yourself.
+
 ## Installation
 
 1. Install a userscript manager — [Tampermonkey](https://www.tampermonkey.net/) is recommended.
 2. Install the script from **[GreasyFork](https://greasyfork.org/scripts/578776)**.
-3. Open the Waze Map Editor. The updater appears in the sidebar.
+3. Open the Waze Map Editor. A **POI Event Updater** button appears in the map button
+   column, on the right: it opens the work window. The **POI Events** sidebar tab keeps
+   the history and the settings.
 
 Updates are delivered automatically through GreasyFork.
 
