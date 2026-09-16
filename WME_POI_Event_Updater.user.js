@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.51
+// @version      0.52
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -78,6 +78,8 @@
                 guideOnglet:'Choisissez l’onglet à poser.',
                 guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
                 colSelect:'Poser', colEtat:'État',
+                sbOuvrir:'Afficher la fenêtre', sbOuvrirTitre:'Ouvrir la fenêtre de travail — c’est là qu’on charge un classeur et qu’on relit avant d’appliquer',
+                sbReglages:'Réglages', sbReglagesNote:'Langue, densité d’affichage, comportement de la carte — à venir. L’emplacement est réservé.',
                 cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
                 footerHelp:'Décochez ce que vous ne voulez pas poser. Les lignes orange RETIRENT des valeurs : elles ne sont jamais cochées d’office.',
                 bilanPartiel:(n)=>`⚠️ ${n} lieu(x) n’ont reçu qu’une partie des valeurs — voir le rapport.`,
@@ -158,6 +160,8 @@
                 guideOnglet:'Choose the sheet to apply.',
                 guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
                 colSelect:'Apply', colEtat:'State',
+                sbOuvrir:'Show the window', sbOuvrirTitre:'Open the work window — that is where you load a workbook and review before applying',
+                sbReglages:'Settings', sbReglagesNote:'Language, display density, map behaviour — to come. The place is reserved.',
                 cancelTitle:'Stop: what is already loaded is kept',
                 footerHelp:'Untick what you do not want to write. Orange rows REMOVE values: they are never ticked by default.',
                 bilanPartiel:(n)=>`⚠️ ${n} place(s) only received part of the values — see the report.`,
@@ -596,6 +600,9 @@
 .peu-footer-error .peu-error-title { font-weight: 700; display: block; margin-bottom: 3px; }
 .peu-footer-error ul { margin: 3px 0 0; padding-inline-start: 18px; }
 .peu-footer-error ul li { margin-bottom: 2px; }
+.peu-alert ul { margin: 3px 0 0; padding-inline-start: 16px; }
+.peu-alert ul li { margin-bottom: 2px; }
+.peu-error-title { font-weight: 700; display: block; margin-bottom: 4px; }
 
 /* ----------------------------------------------------------------------
    BANDEAUX — trois familles, et leur sens ne se melange pas :
@@ -2216,7 +2223,9 @@
         const tabIcon = document.createElement('img');
         tabIcon.src = TAB_ICON;
         tabIcon.alt = t('tabTitle');
-        tabIcon.style.cssText = 'width:18px;height:18px;display:block;';
+        tabIcon.width = 18;
+        tabIcon.height = 18;
+        tabIcon.style.display = 'block';
         tabLabel.appendChild(tabIcon);
         tabLabel.title = t('tabTitle');
         await W.userscripts.waitForElementConnected(tabPane);
@@ -2230,77 +2239,70 @@
             tabLink.style.justifyContent = 'center';
         }
 
+        /* ⭐⭐⭐⭐ LE PANNEAU PORTE LES REGLAGES, LA FENETRE PORTE LE TRAVAIL. Ce
+           panneau fait disparaitre son contenu des qu'on selectionne un objet sur
+           la carte : on ne peut pas y travailler. Tout l'operationnel — choisir
+           un classeur, choisir l'onglet, relire, appliquer — a donc demenage dans
+           la fenetre, qui ne disparait pas.
+
+           ⚠️ PLUS UNE LIGNE DE STYLE EN DUR ICI : le panneau se construisait en
+              style.cssText, bouton par bouton, et c'est pour cela que rien
+              n'etait homogene — il n'y avait rien a quoi etre homogene. */
         const container = document.createElement('div');
         container.className = 'peu-container';
-        container.style.cssText = 'padding:10px;font-family:Segoe UI,Arial,sans-serif;font-size:12px;';
 
         const title = document.createElement('h3');
-        title.textContent = t('panelTitle');
-        title.style.cssText = 'margin:0 0 10px;font-size:14px;color:#2C6ED5;';
+        title.textContent = PEU_EMOJI + ' ' + t('panelTitle');
         container.appendChild(title);
+
+        /* ⚠️ HORS DES SECTIONS, ET EN PREMIER : « afficher la fenetre » est ce
+           qu'on vient chercher ici neuf fois sur dix. Range sous un titre, il
+           serait a trouver. */
+        const btnFenetre = document.createElement('button');
+        btnFenetre.type = 'button';
+        btnFenetre.className = 'peu-btn peu-btn-primary peu-btn-full';
+        btnFenetre.textContent = t('sbOuvrir');
+        btnFenetre.title = t('sbOuvrirTitre');
+        btnFenetre.addEventListener('click', ouvrirOverlay);
+        container.appendChild(btnFenetre);
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file'; fileInput.accept = '.xlsx,.xls'; fileInput.style.display = 'none';
         _peuFileInput = fileInput;
         container.appendChild(fileInput);
 
-        const btnChoose = document.createElement('button');
-        btnChoose.textContent = t('chooseFile');
-        btnChoose.style.cssText = 'background:#2C6ED5;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:12px;cursor:pointer;margin-bottom:6px;';
-        btnChoose.onclick = () => fileInput.click();
-        container.appendChild(btnChoose);
-
-        const status = document.createElement('div');
-        status.textContent = t('noFile');
-        status.style.cssText = 'margin:6px 0;font-size:11px;color:#888;';
-        container.appendChild(status);
-
-        // Repli : si la librairie XLSX n'a pas pu se charger (CDN bloqué / hors ligne),
-        // on informe clairement au lieu de laisser le script planter en silence.
+        /* ⚠️ LE REPLI DE LA BIBLIOTHEQUE RESTE, ET IL DOIT SE VOIR. Si XLSX n'a pas
+           pu se charger (reseau coupe, CDN bloque), rien ne fonctionnera — et le
+           dire ici vaut mieux que de laisser le script echouer au premier clic. */
         if (typeof XLSX === 'undefined') {
-            status.textContent = t('xlsxMissing');
-            status.style.color = '#c0392b';
-            btnChoose.disabled = true;
-            btnChoose.style.opacity = '0.5';
-            btnChoose.style.cursor = 'not-allowed';
+            const alerte = document.createElement('div');
+            alerte.className = 'peu-alert peu-alert-warn';
+            alerte.style.margin = '8px 0';
+            alerte.textContent = t('xlsxMissing');
+            container.appendChild(alerte);
+            btnFenetre.disabled = true;
         }
 
-        const select = document.createElement('select');
-        select.style.cssText = 'display:none;width:100%;margin:6px 0;font-size:12px;border:1px solid #c5d3e8;border-radius:5px;padding:4px 6px;';
-        container.appendChild(select);
+        /* Le titre de section, et la zone d'historique en dessous. */
+        const titreHist = document.createElement('div');
+        titreHist.className = 'peu-side-sect';
+        titreHist.textContent = t('historyTitle');
+        container.appendChild(titreHist);
 
-        const btnShow = document.createElement('button');
-        btnShow.textContent = t('showBtn');
-        btnShow.style.cssText = 'background:#2C6ED5;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:12px;cursor:not-allowed;margin-top:2px;width:100%;opacity:0.5;transition:opacity 0.15s;';
-        btnShow.disabled = true; btnShow.style.opacity = '0.5'; btnShow.style.cursor = 'not-allowed';
-        btnShow.onclick = async () => {
-            // Vérifier que le calque Lieux est actif — si non, l'activer automatiquement
-            const vLayer = W.map.getLayersByName('venues')[0];
-            if (vLayer && !vLayer.getVisibility()) {
-                const toggle = document.querySelector('#layer-switcher-group_places');
-                if (toggle) {
-                    toggle.click();
-                    // Attendre que WME charge les venues
-                    await new Promise(r => setTimeout(r, 1500));
-                } else {
-                    // Fallback si le toggle n'est pas trouvé
-                    alert(t('layerOffMsg'));
-                    return;
-                }
-            }
-            ouvrirApercu(select.value);
-        };
-        container.appendChild(btnShow);
-
-        // Zone rapport de validation (sous le bouton Afficher)
-        const validationReport = document.createElement('div');
-        validationReport.style.cssText = 'margin-top:8px;font-size:10.5px;display:none;';
-        container.appendChild(validationReport);
-
-        // Zone historique
         const historyDiv = document.createElement('div');
-        historyDiv.style.cssText = 'margin-top:10px;font-size:10.5px;';
         container.appendChild(historyDiv);
+
+        /* ⚠️ L'EMPLACEMENT DES REGLAGES EST RESERVE, ET IL LE DIT. Une section
+           vide sans un mot se lit comme un defaut d'affichage. */
+        const titreReg = document.createElement('div');
+        titreReg.className = 'peu-side-sect';
+        titreReg.textContent = t('sbReglages');
+        container.appendChild(titreReg);
+
+        const noteReg = document.createElement('div');
+        noteReg.className = 'peu-hist-meta';
+        noteReg.textContent = t('sbReglagesNote');
+        container.appendChild(noteReg);
 
         function renderHistory() {
             historyDiv.innerHTML = '';
@@ -2309,14 +2311,14 @@
 
             // En-tête avec bouton RAZ
             const hheader = document.createElement('div');
-            hheader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;';
+            hheader.className = 'peu-side-sect';
             const htitle = document.createElement('div');
-            htitle.style.cssText = 'color:#888;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.3px;';
+            htitle.style.flex = '1';
             htitle.textContent = t('historyTitle');
             const btnRaz = document.createElement('button');
             btnRaz.textContent = '🗑';
             btnRaz.title = t('clearHistoryTitle');
-            btnRaz.style.cssText = 'background:none;border:none;cursor:pointer;font-size:12px;color:#aaa;padding:0;line-height:1;';
+            btnRaz.className = 'peu-btn-center';
             btnRaz.onmouseenter = () => btnRaz.style.color = '#c0392b';
             btnRaz.onmouseleave = () => btnRaz.style.color = '#aaa';
             btnRaz.onclick = () => {
@@ -2328,15 +2330,15 @@
 
             history.forEach(h => {
                 const row = document.createElement('div');
-                row.style.cssText = 'margin-bottom:5px;padding:4px 6px;background:#f0f4fb;border-radius:4px;border-left:3px solid #2C6ED5;';
+                row.className = 'peu-hist-row';
                 const name = document.createElement('div');
-                name.style.cssText = 'font-weight:600;color:#2C6ED5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                name.className = 'peu-hist-name';
                 name.textContent = h.name; name.title = h.name;
                 const loaded = document.createElement('div');
-                loaded.style.cssText = 'color:#888;margin-top:1px;';
+                loaded.className = 'peu-hist-meta';
                 loaded.textContent = `${t('histLoaded')} ${formatDateTime(h.loaded)}`;
                 const applied = document.createElement('div');
-                applied.style.cssText = 'color:#888;margin-top:1px;';
+                applied.className = 'peu-hist-meta';
                 applied.textContent = h.applied ? `${t('histApplied')} ${formatDateTime(h.applied)}` : t('histNeverApplied');
                 row.appendChild(name); row.appendChild(loaded); row.appendChild(applied);
                 historyDiv.appendChild(row);
@@ -2352,16 +2354,30 @@
         installerFab();
         renderHistory();
 
+        /**
+         * LE RAPPORT D'ANOMALIES — dans la FENETRE, pas dans le panneau.
+         *
+         * ⭐ IL DIT CE QUI N'EST PAS ENTRE. Une ligne ecartee du classeur ne se
+         *    voit nulle part ailleurs : ni dans le tableau, qui ne montre que ce
+         *    qui est retenu, ni sur la carte. Sans ce rapport, le fichier parait
+         *    complet et il ne l'est pas.
+         */
         function showValidationReport(warnings) {
-            if (!warnings.length) { validationReport.style.display = 'none'; return; }
-            validationReport.style.display = 'block';
-            validationReport.innerHTML = '';
+            const ov = document.getElementById('peu-overlay');
+            const corps = ov ? ov.querySelector('#peu-body') : null;
+            if (!corps) return;
+            const vieux = corps.querySelector('[data-rapport]');
+            if (vieux) vieux.remove();
+            if (!warnings.length) return;
+            const validationReport = document.createElement('div');
+            validationReport.className = 'peu-alert peu-alert-warn';
+            validationReport.setAttribute('data-rapport', '');
+            corps.prepend(validationReport);
             const title = document.createElement('div');
-            title.style.cssText = 'color:#e67e22;font-weight:700;margin-bottom:4px;';
+            title.className = 'peu-error-title';
             title.textContent = t('anomalies', warnings.length) + ' :';
             validationReport.appendChild(title);
             const ul = document.createElement('ul');
-            ul.style.cssText = 'margin:0 0 0 14px;padding:0;color:#555;';
             warnings.forEach(w => {
                 const li = document.createElement('li'); li.style.marginBottom = '2px';
                 li.textContent = w; ul.appendChild(li);
@@ -2371,9 +2387,12 @@
 
         fileInput.addEventListener('change', e => {
             const file = e.target.files[0];
-            poiData = []; select.style.display = 'none'; btnShow.disabled = true; btnShow.style.opacity = '0.5'; btnShow.style.cursor = 'not-allowed';
-            status.textContent = t('noFile'); status.style.color = '#888';
-            validationReport.style.display = 'none';
+            /* ⚠️ ON REPART DE ZERO A CHAQUE FICHIER : laisser le bandeau de
+               l'ancien classeur pendant qu'on en lit un autre, c'est afficher
+               deux verites a la fois. */
+            poiData = [];
+            majStrip(null, [], 0);
+            montrerGuide('guideFichier', 'guideFichierSuite');
             if (!file) return;
             const reader = new FileReader();
             reader.onload = ev => {
@@ -2488,26 +2507,25 @@
 
                     if (!all.length) {
                         // Rien de valide — on affiche quand même le rapport d'anomalies
-                        status.textContent = t('noPoisLoaded');
-                        status.style.color = '#c0392b';
-                        showValidationReport(warnings);
+                        montrerGuide('guideFichier', 'guideFichierSuite');
+                        showValidationReport(warnings.length ? warnings : [t('noPoisLoaded')]);
                         return;
                     }
                     poiData = all;
-                    select.innerHTML = '';
-                    Array.from(new Set(poiData.map(p => p.event))).forEach(evt => {
-                        const o = document.createElement('option'); o.value = evt; o.textContent = evt; select.appendChild(o);
-                    });
-                    select.style.display = 'block'; btnShow.disabled = false; btnShow.style.opacity = '1'; btnShow.style.cursor = 'pointer';
-                    const warnTxt = warnings.length ? ` — ${warnings.length} ⚠️` : '';
-                    status.textContent = t('poisLoaded', all.length) + warnTxt;
-                    status.style.color = warnings.length ? '#e67e22' : '#27ae60';
                     recordFileLoaded(file.name);
                     renderHistory();
-                    majStrip(file.name, Array.from(new Set(poiData.map(p => p.event))), all.length);
+                    /* ⭐ LE BANDEAU DE LA FENETRE PORTE TOUT : le nom du classeur, la
+                       liste des onglets et le nombre de POI. Un seul endroit le dit,
+                       donc il n'y a plus deux comptes a garder d'accord. */
+                    ouvrirOverlay();
+                    majStrip(file.name, Array.from(new Set(poiData.map((p) => p.event))), all.length);
                     showValidationReport(warnings);
-                } catch(err) {
-                    status.textContent = '✖ ' + err.message; status.style.color = '#c0392b';
+                } catch (err) {
+                    /* ⚠️ UNE LECTURE QUI ECHOUE SE DIT, ET SE DIT LA OU L'ON REGARDE.
+                       Un message pose dans un panneau que la carte fait disparaitre
+                       ne serait lu par personne. */
+                    ouvrirOverlay();
+                    showValidationReport(['✖ ' + err.message]);
                 }
                 fileInput.value = '';
             };
@@ -2737,6 +2755,19 @@
     async function ouvrirApercu(eventName) {
         const pois = poiData.filter((p) => p.event === eventName);
         if (!pois.length) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
+
+        /* ⚠️⚠️ LE CALQUE « LIEUX » DOIT ETRE ALLUME, SANS QUOI RIEN N'EXISTE. WME ne
+           charge pas les lieux d'un calque eteint : le prechargement ne trouverait
+           AUCUN POI et l'apercu annoncerait que tout est introuvable — un diagnostic
+           faux, sur un fichier juste. On l'allume donc, et l'on attend que WME
+           serve les lieux avant de balayer. */
+        const calque = W.map.getLayersByName('venues')[0];
+        if (calque && !calque.getVisibility()) {
+            const bascule = document.querySelector('#layer-switcher-group_places');
+            if (!bascule) { alert(t('layerOffMsg')); return; }
+            bascule.click();
+            await new Promise((r) => setTimeout(r, 1500));
+        }
 
         ouvrirOverlay();
         const corps = corpsFenetre();
