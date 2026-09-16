@@ -73,6 +73,12 @@
                 guideOnglet:'Choisissez l’onglet à poser.',
                 guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
                 colSelect:'Poser', colEtat:'État',
+                cbTitre:'Poser cette ligne dans l’éditeur',
+                cbFige:'Cette ligne ne peut pas être posée — voir le badge d’état',
+                colNameTitle:'Le nom à poser. Modifiable avant d’appliquer.',
+                colDescTitle:'La description à poser. Une cellule vide ne demande rien et n’efface rien.',
+                triTitre:'Trier sur cette colonne',
+                badgePerteTitle:(n)=>`Appliquer RETIRERAIT ${n} valeur(s) au lieu`,
                 badgeDiffTitle:(n)=>`${n} champ(s) à poser`,
                 badgeRienTitle:'Rien à poser : le lieu porte déjà ces valeurs',
                 badgeOffTitle:'Lieu introuvable dans l’éditeur : rien ne peut être posé',
@@ -142,6 +148,12 @@
                 guideOnglet:'Choose the sheet to apply.',
                 guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
                 colSelect:'Apply', colEtat:'State',
+                cbTitre:'Write this row into the editor',
+                cbFige:'This row cannot be written — see the state badge',
+                colNameTitle:'The name to write. Editable before applying.',
+                colDescTitle:'The description to write. An empty cell asks for nothing and erases nothing.',
+                triTitre:'Sort on this column',
+                badgePerteTitle:(n)=>`Applying would REMOVE ${n} value(s) from the place`,
                 badgeDiffTitle:(n)=>`${n} field(s) to write`,
                 badgeRienTitle:'Nothing to write: the place already carries these values',
                 badgeOffTitle:'Place not found in the editor: nothing can be written',
@@ -1703,6 +1715,117 @@
              : t('btnApplyN', nbCoche);
     }
     // ==== /banc:coque ====
+
+    // ==== banc:ligne ====
+    // Extrait tel quel par tools/banc-ligne.mjs : rend du texte, ne touche a rien.
+
+    /**
+     * L'ETAT D'UNE LIGNE, EN UN MOT.
+     *
+     * ⭐⭐⭐⭐ IL Y A UN ORDRE, ET IL N'EST PAS ARBITRAIRE. Ce qu'on ne peut PAS
+     *    faire passe avant ce qu'on ferait : un lieu introuvable ou verrouille
+     *    au-dessus du rang ne sera pas pose, quoi qu'il ait a changer, et
+     *    l'annoncer « 4 champs a poser » serait une promesse qu'on ne tient pas.
+     *    Vient ensuite la PERTE, parce qu'elle demande un geste ; puis
+     *    l'ecart ordinaire ; puis rien.
+     */
+    function etatDeLaLigne(infos) {
+        if (!infos.charge)      return 'unloaded';
+        if (infos.verrou === 'hard') return 'hard';
+        if (infos.verrou === 'sae')  return 'sae';
+        if (infos.pertes > 0)   return 'perte';
+        if (infos.nomChange || infos.descChange || infos.champsDiff > 0) return 'diff';
+
+        return 'ok';
+    }
+
+    /**
+     * LE BADGE QUI DIT CET ETAT — son texte, sa classe, son infobulle.
+     *
+     * ⚠️ UN BADGE NE REMPLACE PAS LE LISERE : il se rate, et il disparait sous
+     *    le survol quand on ne l'accompagne pas d'un fond. Les trois signes vont
+     *    ensemble, c'est la regle de la refonte.
+     */
+    function badgeDeLigne(etat, infos) {
+        if (etat === 'unloaded') return { classe: 'peu-badge-off',   texte: '?',  titre: t('badgeOffTitle') };
+        if (etat === 'hard')     return { classe: 'peu-badge-lock',  texte: 'L' + (infos.niveau || ''), titre: t('lockHardTitle') };
+        if (etat === 'sae')      return { classe: 'peu-badge-sae',   texte: 'SaE', titre: t('badgeSaeTitle') };
+        if (etat === 'perte')    return { classe: 'peu-badge-perte', texte: '-' + infos.pertes, titre: t('badgePerteTitle', infos.pertes) };
+        if (etat === 'diff') {
+            const n = (infos.nomChange ? 1 : 0) + (infos.descChange ? 1 : 0) + infos.champsDiff;
+            return { classe: 'peu-badge-diff', texte: String(n), titre: t('badgeDiffTitle', n) };
+        }
+
+        return { classe: 'peu-badge-ok', texte: '=', titre: t('badgeRienTitle') };
+    }
+
+    /**
+     * UNE LIGNE DE L'APERCU, EN HTML.
+     *
+     * ⭐⭐⭐⭐ LA CASE EST EN PREMIERE COLONNE. Elle vivait en quatrieme et
+     *    derniere, large de trente pixels, sous un en-tete VIDE, a cote d'une
+     *    case maitre qui lui ressemble — et le pied de page disait « decochez
+     *    les lignes a exclure » en designant quelque chose que personne ne
+     *    voyait. On la cherche en tete de ligne : c'est le reflexe de tous les
+     *    tableaux, et c'est la qu'elle doit etre.
+     *
+     * ⚠️ RIEN N'EST COCHE D'OFFICE ICI : c'est `cocherDOffice` qui decide, apres
+     *    coup, et le banc du cochage la tient. Une ligne qui RETIRE quelque
+     *    chose ne se coche jamais seule.
+     *
+     * ⚠️ TOUT CE QUI VIENT DU CLASSEUR PASSE PAR esc() : un nom de lieu est une
+     *    donnee externe, et il finit dans un attribut title=.
+     */
+    function ligneApercu(vue) {
+        const etat = etatDeLaLigne(vue);
+        const badge = badgeDeLigne(etat, vue);
+        const fige = etat === 'unloaded' || etat === 'hard';
+        const classes = 'peu-ligne peu-row-' + etat;
+
+        const vieux = (val, change) => '<div class="peu-cell-old' + (change ? ' changed' : '') + '"'
+            + (val ? ' title="' + esc(val) + '"' : '') + '>' + (val ? esc(val) : '&mdash;') + '</div>';
+
+        return '<tr class="' + classes + '" data-idx="' + Number(vue.idx) + '">'
+            + '<td class="center">'
+            +   '<label class="peu-check"><input type="checkbox" class="peu-checkbox"'
+            +     (fige ? ' disabled' : '') + ' title="' + esc(t(fige ? 'cbFige' : 'cbTitre')) + '"></label>'
+            + '</td>'
+            + '<td class="center">'
+            +   '<button type="button" class="peu-btn-center" data-centrer'
+            +     ' title="' + esc(t('locateTitle')) + '" aria-label="' + esc(t('locateTitle')) + '">&#127919;</button>'
+            +   '<span class="peu-badge ' + badge.classe + '" title="' + esc(badge.titre) + '">' + esc(badge.texte) + '</span>'
+            + '</td>'
+            + '<td>' + vieux(vue.ancienNom, vue.nomChange)
+            +   '<input type="text" class="peu-input" data-nom' + (fige ? ' disabled' : '')
+            +     ' value="' + esc(vue.nom) + '" title="' + esc(t('colNameTitle')) + '"></td>'
+            + '<td>' + vieux(vue.ancienDesc, vue.descChange)
+            +   '<textarea class="peu-textarea" data-desc rows="1"' + (fige ? ' disabled' : '')
+            +     ' title="' + esc(t('colDescTitle')) + '">' + esc(vue.desc) + '</textarea></td>'
+            + '</tr>';
+    }
+
+    /**
+     * L'EN-TETE DU TABLEAU.
+     *
+     * ⚠️ LA COLONNE DE LA CASE PORTE UN INTITULE. Vide, elle ne disait pas ce
+     *    que la case decide — et c'est ce qui la rendait invisible.
+     */
+    function enteteApercu() {
+        return '<colgroup><col><col><col><col></colgroup>'
+            + '<thead><tr>'
+            + '<th class="center" title="' + esc(t('masterCbTitle')) + '">'
+            +   '<label class="peu-check"><input type="checkbox" class="peu-checkbox" data-maitre'
+            +     ' title="' + esc(t('masterCbTitle')) + '"></label>'
+            +   '<div style="font-size:.833em;font-weight:700;margin-top:2px">' + esc(t('colSelect')) + '</div>'
+            + '</th>'
+            + '<th class="center">' + esc(t('colEtat')) + '</th>'
+            + '<th class="sortable" data-tri="nom" title="' + esc(t('triTitre')) + '">'
+            +   esc(t('colName')) + '<i class="peu-sort-icon">&#9650;</i></th>'
+            + '<th class="sortable" data-tri="desc" title="' + esc(t('triTitre')) + '">'
+            +   esc(t('colDesc')) + '<i class="peu-sort-icon">&#9650;</i></th>'
+            + '</tr></thead>';
+    }
+    // ==== /banc:ligne ====
 
     // ==== banc:geometrie ====
     // Extrait tel quel par tools/banc-fenetre.mjs : du calcul, pas de DOM.
