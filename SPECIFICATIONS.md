@@ -129,7 +129,60 @@ un simple avertissement — et elle arrive dans l'aperçu **cochée**, donc un c
 nom du lieu**. Comportement de 0.48, mais c'est le seul cas où l'aperçu propose par défaut une
 perte de donnée. À trancher un jour : la garder décochée, ou la refuser.
 
-### 3.1 Le permalink, et ce qu'on en tire
+#### 3.2 Les champs du lot D2 — 0.50
+
+Au-delà du permalien, du nom et de la description, le classeur peut porter **22
+colonnes**, reconnues par leur en-tête (§ 3.0). **14 sont POSÉES** dans WME, **8
+sont MONTRÉES** sans être posées — horaires, adresse, points d'entrée, opérateur
+de parking, catégories et les champs Google : les poser demanderait d'interpréter
+une phrase ou de deviner un identifiant, et une interprétation fausse s'écrit sur
+la carte sans que rien ne la signale.
+
+**Ce qui protège l'écriture**, et chaque point vient d'un relevé, pas d'une
+intuition :
+
+1. une **table de conversion** relevée dans l'éditeur — le SDK accepte une valeur
+   hors énumération et la POSE telle quelle ;
+2. une **liste blanche** des champs — un nom de champ inconnu est accepté sans
+   erreur, ne pose rien, et marque quand même le lieu modifié ;
+3. une **relecture du lieu après écriture** (`comparerAuLieu`) — sans elle,
+   « appliqué » ne veut dire que « l'appel n'a pas levé d'exception » ;
+4. un **refus de compter pour un succès** un champ à poser qui n'a jamais été
+   envoyé (voir ci-dessous).
+
+⚠️ **Un TABLEAU remplace tout son contenu** dans WME : la pastille d'une valeur
+posée dit en infobulle ce qu'elle **remplace**. Vérifié sur un cas réel : un
+classeur demandant « Espèces » sur un parking qui portait « Carte de crédit,
+Espèces » supprime la carte de crédit.
+
+⭐ **L'aperçu ne montre en vert que ce qui CHANGE**, et compte le reste (« déjà
+conforme : 3 ») : un classeur portant l'état complet d'un parc affichait sept
+pastilles par lieu là où rien n'était à faire.
+
+### 🔴 Les deux défauts que SEUL l'essai dans WME a trouvés (16/09/2026)
+
+**Aucun banc ne pouvait les voir**, et ils étaient tous deux silencieux :
+
+1. l'indicateur « à jour » ne regardait que le nom et la description : l'aperçu
+   annonçait « ✅ Aucune modification » sur un parking qui avait quatre champs à
+   poser. On ferme la fenêtre en confiance, et rien n'est appliqué ;
+2. la liste à appliquer se construisait **sans les valeurs** : le SDK n'était
+   jamais appelé, aucune action n'entrait dans la pile, et l'écran annonçait
+   « ✔ 1 POI appliqué avec succès » sur un lieu intact.
+
+⭐⭐⭐⭐ **UNE CHAÎNE QUI SE COUPE ENTRE L'APERÇU ET L'APPLICATION NE SE VOIT QUE SUR
+LA CARTE.** L'aperçu, lui, était juste — et c'est lui qu'on regarde.
+
+✅ **Éprouvé dans WME le 16/09** sur les parkings de la gare TGV d'Avignon :
+18 POI chargés, l'aperçu signalant 2 lieux à modifier sur 9, application sur un
+seul — les quatre champs vides retrouvés dans le lieu après écriture
+(`UNKNOWN → FREE`, `[] → CASH`, `[] → STREET_LEVEL`, services `[] → PMR +
+Surveillance`), puis **annulation vérifiée** : lieu identique à l'avant, pile
+d'actions revenue à son étalon. Rien n'a été enregistré.
+
+---
+
+## 3.1 Le permalink, et ce qu'on en tire
 
 `getVenueIdFromPermalink(url)` lit `venues=` : l'identifiant peut être **numérique (ancien) ou un
 GUID alphanumérique (nouveau)**, et il peut y en avoir plusieurs séparés par des virgules —
