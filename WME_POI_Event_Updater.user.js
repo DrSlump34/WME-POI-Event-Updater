@@ -1949,10 +1949,16 @@
             // Collecter les lignes cochées
             const toApply = [];
             tbody.querySelectorAll('tr').forEach(tr => {
-                const {vid, inpName, txtArea, cb} = tr._inputs;
+                const {vid, inpName, txtArea, cb, valeurs} = tr._inputs;
                 if (!cb.checked) return;
                 const poi = pois.find(p => getVenueIdFromPermalink(p.perm) === vid);
-                if (poi) toApply.push({vid, perm: poi.perm, inpName, txtArea, name: inpName.value});
+                /* 🔴 `valeurs` A MANQUÉ ICI, ET LE SCRIPT A DIT « SUCCÈS ». Sans lui,
+                   `runApply` recevait un objet sans champs du lot D2 : rien n'était
+                   envoyé au SDK, aucune action n'entrait dans la pile, et l'écran
+                   annonçait « 1 POI appliqué avec succès » sur un lieu intact.
+                   ⇒ Une chaîne qui se coupe entre l'aperçu et l'application ne se
+                     voit QUE sur la carte : l'aperçu, lui, était juste. */
+                if (poi) toApply.push({vid, perm: poi.perm, inpName, txtArea, name: inpName.value, valeurs});
             });
 
             if (!toApply.length) { overlay.remove(); return; }
@@ -2032,6 +2038,17 @@
                               « appliqué » ne voudrait dire que « l'appel n'a pas planté ». */
                         let poseSdk = null;
                         const { maj, ignores } = construireMaj(aPoser);
+
+                        /* ⚠️⚠️ UN CHAMP À POSER QUI N'EST JAMAIS ENVOYÉ EST UN MANQUE, PAS UN
+                           SUCCÈS. Le 16/09, la liste à appliquer se construisait sans les
+                           valeurs : `maj` sortait vide, le SDK n'était pas appelé, et
+                           l'écran annonçait « appliqué avec succès » sur un lieu que
+                           personne n'avait touché. Le compte ci-dessous le refuse. */
+                        const attendus = Object.keys(aPoser).filter(c => !CIBLES_HERITEES.includes(c));
+                        if (attendus.length && !Object.keys(maj).length) {
+                            poseSdk = { identiques: [], differents: attendus };
+                        }
+
                         if (Object.keys(maj).length) {
                             try {
                                 const sdk = obtenirSdk();
