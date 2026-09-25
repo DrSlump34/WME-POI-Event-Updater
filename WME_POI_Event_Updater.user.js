@@ -214,7 +214,7 @@
                 vaTakeAway:'À emporter', vaValletService:'Service de voiturier', vaWheelchairAccessible:'Accessible en fauteuil roulant',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Navette aéroport', vaCarpoolParking:'Places covoiturage', vaCarWash:'Lavage auto',
                 vaCovered:'Couvert', vaDisabilityParking:'Places PMR', vaOnSiteAttendant:'Agent d’accueil', vaParkAndRide:'P+R',
-                vaSecurity:'Surveillance', vaValet:'Voiturier', vaEvChargingStation:'Bornes de charge',
+                vaSecurity:'Surveillance', vaValet:'Voiturier', vaEvChargingStation:'Bornes de charge', vaUnknown:'Inconnu',
             },
             en: {
                 tabTitle:'WME POI Event Updater',
@@ -338,7 +338,7 @@
                 vaTakeAway:'Take away', vaValletService:'Valet service', vaWheelchairAccessible:'Wheelchair accessible',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Airport shuttle', vaCarpoolParking:'Carpool parking', vaCarWash:'Car wash',
                 vaCovered:'Covered', vaDisabilityParking:'Disability parking', vaOnSiteAttendant:'On-site attendant', vaParkAndRide:'Park and ride',
-                vaSecurity:'Security', vaValet:'Valet', vaEvChargingStation:'EV charging station',
+                vaSecurity:'Security', vaValet:'Valet', vaEvChargingStation:'EV charging station', vaUnknown:'Unknown',
             },
             de: {
                 tabTitle:'WME POI Event Updater',
@@ -462,7 +462,7 @@
                 vaTakeAway:'Zum Mitnehmen', vaValletService:'Parkservice', vaWheelchairAccessible:'Rollstuhlgerecht',
                 vaWiFi:'WLAN', vaAirportShuttle:'Flughafen-Shuttle', vaCarpoolParking:'Fahrgemeinschaftsparkplätze', vaCarWash:'Autowäsche',
                 vaCovered:'Überdacht', vaDisabilityParking:'Behindertenparkplätze', vaOnSiteAttendant:'Personal vor Ort', vaParkAndRide:'Park & Ride',
-                vaSecurity:'Überwachung', vaValet:'Parkservice (Valet)', vaEvChargingStation:'Ladestation',
+                vaSecurity:'Überwachung', vaValet:'Parkservice (Valet)', vaEvChargingStation:'Ladestation', vaUnknown:'Unbekannt',
             },
             es: {
                 tabTitle:'WME POI Event Updater',
@@ -586,7 +586,7 @@
                 vaTakeAway:'Para llevar', vaValletService:'Aparcacoches', vaWheelchairAccessible:'Accesible en silla de ruedas',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Lanzadera al aeropuerto', vaCarpoolParking:'Plazas para coche compartido', vaCarWash:'Lavado de coches',
                 vaCovered:'Cubierto', vaDisabilityParking:'Plazas para movilidad reducida', vaOnSiteAttendant:'Personal in situ', vaParkAndRide:'Aparcamiento disuasorio',
-                vaSecurity:'Vigilancia', vaValet:'Aparcacoches (valet)', vaEvChargingStation:'Puntos de recarga',
+                vaSecurity:'Vigilancia', vaValet:'Aparcacoches (valet)', vaEvChargingStation:'Puntos de recarga', vaUnknown:'Desconocido',
             },
             it: {
                 tabTitle:'WME POI Event Updater',
@@ -710,7 +710,7 @@
                 vaTakeAway:'Da asporto', vaValletService:'Servizio parcheggiatore', vaWheelchairAccessible:'Accessibile in sedia a rotelle',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Navetta aeroporto', vaCarpoolParking:'Posti car pooling', vaCarWash:'Autolavaggio',
                 vaCovered:'Coperto', vaDisabilityParking:'Posti per disabili', vaOnSiteAttendant:'Personale sul posto', vaParkAndRide:'Parcheggio di scambio',
-                vaSecurity:'Sorveglianza', vaValet:'Parcheggiatore (valet)', vaEvChargingStation:'Colonnine di ricarica',
+                vaSecurity:'Sorveglianza', vaValet:'Parcheggiatore (valet)', vaEvChargingStation:'Colonnine di ricarica', vaUnknown:'Sconosciuto',
             },
             'pt-BR': {
                 tabTitle:'WME POI Event Updater',
@@ -834,7 +834,7 @@
                 vaTakeAway:'Para viagem', vaValletService:'Serviço de manobrista', vaWheelchairAccessible:'Acessível para cadeira de rodas',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Traslado para o aeroporto', vaCarpoolParking:'Vagas de carona', vaCarWash:'Lava-jato',
                 vaCovered:'Coberto', vaDisabilityParking:'Vagas para deficientes', vaOnSiteAttendant:'Atendente no local', vaParkAndRide:'Estacionamento integrado',
-                vaSecurity:'Segurança', vaValet:'Manobrista', vaEvChargingStation:'Carregador de veículos elétricos',
+                vaSecurity:'Segurança', vaValet:'Manobrista', vaEvChargingStation:'Carregador de veículos elétricos', vaUnknown:'Desconhecido',
             },
             'pt-PT': {
                 tabTitle:'WME POI Event Updater',
@@ -958,7 +958,7 @@
                 vaTakeAway:'Take-away', vaValletService:'Serviço de arrumador', vaWheelchairAccessible:'Acessível a cadeira de rodas',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'Vaivém para o aeroporto', vaCarpoolParking:'Lugares de boleia partilhada', vaCarWash:'Lavagem auto',
                 vaCovered:'Coberto', vaDisabilityParking:'Lugares para deficientes', vaOnSiteAttendant:'Funcionário no local', vaParkAndRide:'Parque dissuasor',
-                vaSecurity:'Vigilância', vaValet:'Arrumador (valet)', vaEvChargingStation:'Postos de carregamento',
+                vaSecurity:'Vigilância', vaValet:'Arrumador (valet)', vaEvChargingStation:'Postos de carregamento', vaUnknown:'Desconhecido',
             },
             he: {
                 tabTitle:'WME POI Event Updater',
@@ -1082,7 +1082,7 @@
                 vaTakeAway:'טייק-אוויי', vaValletService:'שירות ואלה', vaWheelchairAccessible:'נגיש לכיסא גלגלים',
                 vaWiFi:'Wi-Fi', vaAirportShuttle:'הסעה לשדה התעופה', vaCarpoolParking:'חניית קארפול', vaCarWash:'שטיפת רכב',
                 vaCovered:'מקורה', vaDisabilityParking:'חניית נכים', vaOnSiteAttendant:'נציג במקום', vaParkAndRide:'חנה וסע',
-                vaSecurity:'אבטחה', vaValet:'ואלה', vaEvChargingStation:'עמדת טעינה לרכב חשמלי',
+                vaSecurity:'אבטחה', vaValet:'ואלה', vaEvChargingStation:'עמדת טעינה לרכב חשמלי', vaUnknown:'לא ידוע',
             },
         };
         const val = _strings[_peuLang]?.[key] ?? _strings.en[key] ?? key;
@@ -1703,6 +1703,12 @@
             EV_CHARGING_STATION: ['Bornes de charge']
         }
     };
+
+    /* ⚠️ CE QUE WME PEUT PORTER SANS QU'ON PUISSE LE DEMANDER. Un tarif jamais
+       renseigné vaut `UNKNOWN` : l'aperçu l'affichait brut (« remplace :
+       UNKNOWN », essai dans WME du 25/09/2026). On le TRADUIT à l'affichage, on
+       ne l'accepte pas en entrée — demander « inconnu » n'a pas de sens. */
+    const VALEURS_LUES_SEULEMENT = ['UNKNOWN'];
 
     /**
      * La clé WME d'une valeur lue dans le classeur, ou `null` si elle n'est pas

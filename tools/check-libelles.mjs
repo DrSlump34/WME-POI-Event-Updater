@@ -115,7 +115,7 @@ if (!appelsIndirects.length) {
    fait alors échouer ce contrôle.
    ⚠️ Les catégories (traduites par WME lui-même) et les nombres de places
       (des chiffres) n'ont pas de clé. */
-const { CHAMPS, VALEURS_WME } = charger(['champs'], ['CHAMPS', 'VALEURS_WME']);
+const { CHAMPS, VALEURS_WME, VALEURS_LUES_SEULEMENT } = charger(['champs'], ['CHAMPS', 'VALEURS_WME', 'VALEURS_LUES_SEULEMENT']);
 const majuscule = (c) => c.charAt(0).toUpperCase() + c.slice(1);
 const chameau = (k) => k.toLowerCase().split('_').map(majuscule).join('');
 const derivees = [
@@ -123,6 +123,7 @@ const derivees = [
     ...CHAMPS.filter((c) => c.motif).map((c) => 'mo' + majuscule(c.cle)),
     ...Object.keys(VALEURS_WME).filter((r) => r !== 'categories' && r !== 'estimatedNumberOfSpots')
         .flatMap((r) => Object.keys(VALEURS_WME[r]).map((k) => 'va' + chameau(k))),
+    ...VALEURS_LUES_SEULEMENT.map((k) => 'va' + chameau(k)),
 ];
 
 const appelees = new Set([
