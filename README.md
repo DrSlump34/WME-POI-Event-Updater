@@ -10,7 +10,7 @@ in a spreadsheet once and let the script apply it.
 [![Install from GreasyFork](https://img.shields.io/badge/install-GreasyFork-red)](https://greasyfork.org/scripts/578776)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![WME POI Event Updater](Capture%200.52.jpg)
+![WME POI Event Updater](Capture%200.53.jpg)
 
 ## How it works
 
