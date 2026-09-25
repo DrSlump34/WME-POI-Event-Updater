@@ -13,7 +13,27 @@ local `AUDIT-2026-09-25.md`, **exclu du dépôt**) a été traité en entier, da
 l'ordre qu'il proposait : les filets d'abord, puis ce qui écrit, puis ce qui
 trompe, puis la charte.
 
-## 🔴 AVANT TOUTE PUBLICATION : L'ESSAI DANS WME, SANS ENREGISTRER
+## ✅ ESSAI DANS WME DU 25/09/2026 (Tampermonkey, bac à sable) — SANS ENREGISTRER
+
+Installée par Tampermonkey (pas injectée) : démarrage sans erreur ; onglet
+Scripts mesuré (`getComputedStyle`) conforme à la charte — titre « Waze Boing
+Medium » 13 px #2196f3, version 11 px #9e9e9e, intro 11 px #566372, pilule
+#1976d2 3px 10px, aide repliée ; les 15 px sous le h2 viennent de WME et valent
+pour les six scripts. Fenêtre à gauche des boutons de la carte.
+`Essai 0.50 - champs du lot D2.xlsx` : 18 lieux, tous trouvés. Retouche d'une
+ligne « = » ⇒ cochée, badge 1 ; retouche effacée ⇒ décochée ; nom vidé ⇒
+décochée, « le nom du lieu serait effacé ». Onglet Essai D2 : P1 orange -1 non
+cochée, parking Moto 4 champs cochée. **Appliquer 1 ligne** ⇒ « ✔ 1 lieu posé,
+1 modification ajoutée à la pile », ligne ✔ décochée, bouton « Rien de coché »,
+historique « appliqué » daté ; modèle relu : FREE, CASH, STREET_LEVEL, PMR +
+Surveillance. **Une annulation ⇒ pile 0, lieu revenu à l'avant (UNKNOWN, [],
+[], []), Enregistrer grisé.**
+Défaut vu : « (remplace : UNKNOWN) » brut ⇒ corrigé (`948736f`).
+
+**Non essayé** : un lieu SaE (aucun verrouillé au-dessus du rang 6 dans
+l'essai), le téléchargement du rapport, l'hébreu.
+
+## Ce qui avait été prévu pour l'essai
 
 **Le chemin qui écrit n'a toujours pas été cliqué dans l'éditeur** — ni en 0.52,
 ni en 0.53. Il est désormais couvert par un banc (`banc-application`), mais un
