@@ -6,7 +6,15 @@
 
 ---
 
-# 🔧 25/09/2026 — AUDIT TRAITÉ — v0.53.00 PRÊTE, **NON PUBLIÉE**
+# ✅ 25/09/2026 — AUDIT TRAITÉ — v0.53.00 PUBLIÉE
+
+| Où | Vérifié |
+|---|---|
+| **GreasyFork 578776** | code SERVI identique au local (hors les deux lignes réécrites) ; descriptions EN/FR en Markdown ; **une seule capture**, la 0.53 |
+| **GitHub** | `master` poussé (capture 0.53, README, descriptions) |
+| **Discuss 404593** | post 1 réécrit (version ×2, capture 0.53, liens GF + GitHub dans chaque section) ; annonce bilingue (post 8) |
+
+⏳ Reste : un lieu SaE et le téléchargement du rapport, jamais essayés dans WME ; les deux lignes de liens FR du post 1 ont encore une espace ordinaire avant « : ».
 
 L'audit du 25/09/2026 (11 dimensions, un réfuteur chacune, un arbitre ; rapport
 local `AUDIT-2026-09-25.md`, **exclu du dépôt**) a été traité en entier, dans
