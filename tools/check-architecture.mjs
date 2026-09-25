@@ -135,6 +135,40 @@ verifier('le depot est branche a la construction de la fenetre',
     true, source.includes('brancherDepot(ov)'));
 
 // ---------------------------------------------------------------------------
+// Aucune fonction enfermee dans initScript et appelee au-dehors
+// ---------------------------------------------------------------------------
+/* ⭐⭐⭐⭐ CE CONTROLE ETAIT VERT PENDANT QUE LE DEPOT D'UN FICHIER PLANTAIT.
+   `showValidationReport` vivait DANS initScript ; `brancherDepot`, au-dehors,
+   l'appelait pour refuser un fichier qui n'est pas un classeur — une
+   ReferenceError, et rien a l'ecran. Le controle cherchait « #peu-body » dans
+   son texte : le texte etait juste, la PORTEE etait fausse (audit du
+   25/09/2026). On mesure donc la portee : toute fonction declaree dans
+   initScript ne doit etre nommee nulle part ailleurs. */
+if (panneau) {
+    const internes = [...panneau.matchAll(/\n {8}function\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
+    const dehors = source.slice(0, source.indexOf(panneau)) + source.slice(source.indexOf(panneau) + panneau.length);
+    const fuyantes = internes.filter((n) => new RegExp('\\b' + n + '\\s*\\(').test(dehors));
+    verifier('aucune fonction interne a initScript n’est appelee hors de sa portee', [], fuyantes);
+    if (!internes.length && panneau.includes('function ')) {
+        echecs.push('fonctions internes a initScript introuvables : le motif ne mord plus');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Une seule icone, celle de l'en-tete
+// ---------------------------------------------------------------------------
+/* ⭐ La charte veut LA MEME icone sur l'onglet, le panneau, la fenetre et le
+   bouton de la carte. Il y en avait trois. La constante et l'en-tete ne
+   peuvent plus diverger. */
+{
+    const enTete = (source.match(/^\/\/ @icon\s+(\S+)/m) || [])[1];
+    const constante = (source.match(/const ICONE = '([^']+)'/) || [])[1];
+    verifier('ICONE est l’icone de l’en-tete', true, !!enTete && enTete === constante);
+    verifier('aucune autre image d’icone dans le script', 0,
+        (source.match(/data:image\/svg\+xml;base64,/g) || []).length - 2);
+}
+
+// ---------------------------------------------------------------------------
 // Aucune classe CSS orpheline
 // ---------------------------------------------------------------------------
 /* ⭐⭐⭐⭐ UN STYLE SANS ELEMENT A L'AIR FAIT, ET NE L'EST PAS. La zone de depot

@@ -12,7 +12,9 @@
  *    le script le charge par `@require`. Le récupérer une fois, hors du dépôt :
  *
  *      curl -o /tmp/xlsx.full.min.js \
- *        https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
+ *        https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js
+ *    ⚠️ LA MÊME VERSION QUE L'EN-TÊTE (`@require`) : 0.20.3 depuis le 25/09/2026.
+ *       Éprouver avec une autre, c'est éprouver un autre lecteur.
  *
  *    puis passer son chemin en second argument. Par défaut : `./xlsx.full.min.js`.
  *
@@ -45,8 +47,8 @@ try {
 
 
 /* Les deux fonctions dont le corps du chargement a besoin, extraites du script. */
-const { mapColumns, mapChamps, lireValeurs } = new Function(
-    bloc('champs') + bloc('colonnes') + '\nreturn { mapColumns, mapChamps, lireValeurs };'
+const { mapColumns, mapChamps, lireValeurs, colonnesEnDouble, lettreDeColonne } = new Function(
+    bloc('champs') + bloc('colonnes') + '\nreturn { mapColumns, mapChamps, lireValeurs, colonnesEnDouble, lettreDeColonne };'
 )();
 
 const debutVid = source.indexOf('function getVenueIdFromPermalink(url) {');
@@ -62,8 +64,11 @@ if (debut === -1 || fin === -1 || fin < debut) {
     process.exit(1);
 }
 
+/* ⚠️ Ce que le corps lit AU-DEHORS est fourni ici, un par un : une dépendance
+   nouvelle et oubliée fait lever le banc, elle ne passe pas en silence. */
 const charger = new Function(
-    'XLSX', 'ev', 't', 'getVenueIdFromPermalink', 'mapColumns', 'mapChamps', 'lireValeurs',
+    'XLSX', 'donnees', 't', 'getVenueIdFromPermalink', 'mapColumns', 'mapChamps', 'lireValeurs',
+    'colonnesEnDouble', 'lettreDeColonne', 'libelleDuChamp', 'envDeLaPage',
     source.slice(debut, fin) + '\nreturn { all, warnings };'
 );
 
@@ -73,12 +78,16 @@ const t = (cle, ...args) => (args.length ? `${cle}(${args.join(',')})` : cle);
 
 const { all, warnings } = charger(
     XLSX,
-    { target: { result: new Uint8Array(readFileSync(classeur)).buffer } },
+    new Uint8Array(readFileSync(classeur)).buffer,
     t,
     getVenueIdFromPermalink,
     mapColumns,
     mapChamps,
-    lireValeurs
+    lireValeurs,
+    colonnesEnDouble,
+    lettreDeColonne,
+    (cle) => cle,
+    () => process.env.PEU_ENV || null
 );
 
 const parOnglet = new Map();

@@ -53,12 +53,9 @@
 
   /* Les fonctions de rendu, avec leurs deux dependances. */
   const bloc = src.slice(src.indexOf('// ==== banc:ligne ===='), src.indexOf('// ==== /banc:ligne ===='));
-  const prelude = `
-    function esc(v) {
-        return String(v === undefined || v === null ? '' : v)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
+  /* esc est EXTRAIT du script, pas recopie (25/09/2026). */
+  const blocEsc = src.slice(src.indexOf('// ==== banc:esc ===='), src.indexOf('// ==== /banc:esc ===='));
+  const prelude = blocEsc + `
     const LIB = {
         colSelect:'Poser', colEtat:'État', colName:'Nom', colDesc:'Description',
         masterCbTitle:'Tout cocher / décocher', triTitre:'Trier sur cette colonne',

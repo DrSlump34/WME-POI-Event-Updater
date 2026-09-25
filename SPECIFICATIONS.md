@@ -1,7 +1,8 @@
 # PEU — WME POI Event Updater · Dossier de spécifications
 
-> **Version du code décrite ici : 0.50** (lue dans le bloc `==UserScript==` de
-> `WME_POI_Event_Updater.user.js`).
+> **Version du code décrite ici : 0.53.00** (lue dans le bloc `==UserScript==` de
+> `WME_POI_Event_Updater.user.js`). Elle traite l'audit du 25/09/2026
+> (`AUDIT-2026-09-25.md`, local, hors dépôt public).
 > Diffusé sur **GreasyFork 578776**, dépôt `github.com/DrSlump34/WME-POI-Event-Updater`,
 > fil Discuss **404593**.
 
@@ -9,18 +10,17 @@
 
 ## 0. À qui s'adresse ce dossier
 
-Dossier de reprise du projet. Le script a **cinq bancs** dans `tools/` — la lecture des colonnes,
-la conversion des valeurs, la lecture d'une ligne, l'écriture, et le chargement d'un vrai classeur
-— plus `banc-apercu.html` pour le rendu. ⚠️ **Aucun ne voit la carte** : tout ce qui touche à WME
-ne se vérifie que dans l'éditeur, et les deux défauts les plus graves de la 0.50 y ont été trouvés
-(§ 3.2).
+Dossier de reprise du projet. Les bancs et contrôles de `tools/` (quinze, dont `banc-application`
+pour le chemin qui écrit) se listent dans `ETAT_ET_REPRISE.md`, avec l'angle mort de chacun.
+⚠️ **Aucun ne voit la carte** : tout ce qui touche à WME ne se vérifie que dans l'éditeur, et les
+deux défauts les plus graves de la 0.50 y ont été trouvés (§ 3.2).
 
 | Document | Rôle |
 |---|---|
 | `README.md` | Vitrine anglaise : à quoi ça sert, le format du fichier, l'installation |
 | **`SPECIFICATIONS.md`** (ce fichier) | **Normatif** : le contrat, le modèle de données, les invariants |
 | `WME_POI_Event_Updater_Template.xlsx` | Le **gabarit vierge** du fichier d'entrée — c'est lui qui fait foi sur les colonnes |
-| `Descr. HTML GreasyFork 0.23.txt` | La description publiée, en HTML |
+| `Descr. GreasyFork 0.53.md` | Les descriptions GreasyFork à jour (EN et FR), à recopier à la publication |
 
 ⚠️ **`ACO Events.xlsx` contient des données d'événement réelles** et est exclu du dépôt public
 (`.gitignore`). Ne jamais le publier, ne jamais le joindre à un rapport de bug — le README le dit
@@ -61,14 +61,19 @@ et l'éditeur enregistre ensuite. Deux exigences en découlent :
 - Produire un **rapport Excel** de ce qui a été fait, avec l'avant et l'après.
 - Garder un **historique des cinq derniers fichiers**, avec la date de chargement et la date
   d'application.
-- Fonctionner en **français et en anglais**.
+- Fonctionner dans les **huit langues de la charte commune** : français, anglais, allemand,
+  espagnol, italien, portugais (Brésil et Portugal), hébreu (de droite à gauche).
 
 ### 2.2 Ce que PEU ne fait pas
 
-- **Il ne crée pas de lieux** et n'en supprime aucun : il met à jour `name` et `description`.
-- **Il ne touche pas aux alias** : ils sont relus et repassés tels quels.
+- **Il ne crée pas de lieux** et n'en supprime aucun : il met à jour les champs d'un lieu existant.
+- **Les noms alternatifs ne sont touchés que si le classeur en porte** (colonne `Alternative
+  Names`, depuis la 0.50) ; sinon ils sont relus et repassés tels quels. Depuis la 0.53 ils se
+  **comparent** comme les autres champs : un ajout seul s'annonce et se coche, un retrait est une
+  perte (§ 3.2).
 - **Il n'enregistre pas.** Les modifications sont posées dans la pile d'annulation de WME.
-- **Il n'écrit rien hors du navigateur** : `@grant none`, aucun appel réseau propre au script.
+- **Un seul appel réseau propre au script** : la vérification de nouvelle version, au plus une
+  fois par 24 h, par `GM_xmlhttpRequest` vers `update.greasyfork.org` (§ 10.1). Rien d'autre ne sort.
 
 ---
 
@@ -79,13 +84,21 @@ et l'éditeur enregistre ensuite. Deux exigences en découlent :
 
 | Colonne | Contenu |
 |---|---|
-| `POI Permalink` | Permalink WME pointant le lieu |
+| `POI Permalink` | Permalink WME pointant le lieu (`env`, `lat`, `lon`, `zoomLevel`, `venues`) |
 | `POI Name` | Nom à poser |
-| `POI Description` | Description à poser |
+| `POI Description` | Description à poser — **une cellule vide EFFACE la description** |
 
-Lecture par **SheetJS (`xlsx` 0.18.5)**, chargé par `@require`. ⚠️ **Deux `@require` pointent la
-même bibliothèque** — cdnjs **puis** jsDelivr : c'est un **repli** volontaire, si un CDN est
-inaccessible l'autre sert.
+⚠️⚠️ **LE NOM ET LA DESCRIPTION SONT TOUJOURS ENVOYÉS, VIDES COMPRIS.** Une description vide
+efface celle du lieu, et c'est voulu : l'onglet « Hors Evenement » remet les lieux à nu (251
+descriptions vides sur 342 dans les données ACO). L'aperçu le dit **dans le champ** (« la
+description du lieu sera effacée »), sans décocher. Un **nom** vide, lui, n'est jamais coché
+d'office. La règle « une cellule vide ne demande rien » ne vaut **que pour les champs du lot D2**.
+
+Lecture par **SheetJS 0.20.3**, un seul `@require` depuis `cdn.sheetjs.com` (accepté par
+GreasyFork), avec son empreinte `#sha256=`. ⚠️ **La 0.18.5 des CDN publics avait deux failles
+connues** (CVE-2023-30533, pollution de prototype ; CVE-2024-22363, ReDoS) — SheetJS ne publie plus
+sur npm, d'où l'hôte. Il n'y a **pas de repli** : les deux `@require` d'avant étaient **exécutés
+tous les deux**, ce n'était pas un repli mais une surface doublée.
 
 ### 3.0 Les colonnes se lisent par leur EN-TÊTE — 0.49
 
@@ -108,6 +121,14 @@ comme en 0.48, et une anomalie le dit (`sheetHeaderFallback`). Un repli partiel 
 colonne au hasard ; la règle, elle, se dit en une phrase. Un onglet dont les trois premières
 en-têtes sont vides reste **ignoré**, comme avant.
 
+⚠️⚠️ **0.53 — LE REPLI SE REFUSE QUAND UNE EN-TÊTE RECONNUE EST AILLEURS QU'À SA PLACE A/B/C.**
+`Lien WME | Description | Nom` : le repli lisait la description comme le nom, sur tout l'onglet,
+chaque ligne cochée d'office. L'onglet est désormais ignoré (`sheetHeaderConflit`). Cette garde ne
+joue **qu'en repli** : un classeur lu par ses en-têtes n'est jamais concerné.
+
+⚠️ **Deux colonnes pour un même champ** (« Site » et « Website ») : la première est lue, et
+depuis la 0.53 **cela se dit** (`colonneDoublon`, lettres des colonnes à l'appui).
+
 ⇒ Les colonnes peuvent être **réordonnées**, et des colonnes **supplémentaires sont ignorées** :
 c'est ce qui ouvre l'enrichissement du format (lot D2 de l'extranet EVIDRA).
 
@@ -125,16 +146,19 @@ exploitables (`Config` et l'onglet sans en-têtes absents), l'onglet aux colonne
 deux colonnes en plus rendant ses **8 POI** et l'aperçu « ✅ À jour » — celui que 0.48 laissait
 vide. Rien n'a été appliqué ; « Enregistrer » est resté grisé.
 
-⚠️⚠️ **VU AU PASSAGE, ET CE N'EST PAS UNE RÉGRESSION** : une ligne au **nom vide** est gardée avec
-un simple avertissement — et elle arrive dans l'aperçu **cochée**, donc un clic sur ✓ **viderait le
-nom du lieu**. Comportement de 0.48, mais c'est le seul cas où l'aperçu propose par défaut une
-perte de donnée. À trancher un jour : la garder décochée, ou la refuser.
+✅ **Tranché en 0.53 : une ligne au nom vide arrive DÉCOCHÉE** (`cocherDOffice`, cinquième
+argument), avec « le nom du lieu serait effacé » dans le champ. La cocher reste possible.
+
+⚠️ **Les cellules se lisent en texte, sans espace autour** (`String(…).trim()`) : un nom gardait
+son espace final et le posait tel quel, et un nombre ne se comparait jamais égal au texte du lieu.
 
 ## 3.1 Le permalink, et ce qu'on en tire
 
 `getVenueIdFromPermalink(url)` lit `venues=` : l'identifiant peut être **numérique (ancien) ou un
 GUID alphanumérique (nouveau)**, et il peut y en avoir plusieurs séparés par des virgules —
-**on prend le premier**.
+**on prend le premier**, et depuis la 0.53 **l'anomalie le dit** (`urlPlusieursLieux`). Un
+permalien d'un **autre serveur** que celui de l'éditeur (`env=`) est gardé mais signalé
+(`urlAutreEnv`) : « introuvable » n'en donnerait pas la cause.
 
 `parseLatLon(url)` lit `lat` / `lon` **en gérant les valeurs négatives** (hémisphère sud, ouest de
 Greenwich) : c'est ce qui rend le script utilisable ailleurs qu'en Europe.
@@ -163,9 +187,21 @@ intuition :
    envoyé (voir ci-dessous).
 
 ⚠️ **Un TABLEAU remplace tout son contenu** dans WME : la pastille d'une valeur
-posée dit en infobulle ce qu'elle **remplace**. Vérifié sur un cas réel : un
-classeur demandant « Espèces » sur un parking qui portait « Carte de crédit,
-Espèces » supprime la carte de crédit.
+posée dit **en clair** ce qu'elle **remplace** (« (remplace : …) » — en infobulle
+seulement jusqu'en 0.52, inatteignable au clavier et au doigt). Vérifié sur un
+cas réel : un classeur demandant « Espèces » sur un parking qui portait « Carte
+de crédit, Espèces » supprime la carte de crédit.
+
+⭐⭐⭐ **L'ORDRE DES CATÉGORIES COMPTE, CELUI DES AUTRES LISTES NON.** La première
+catégorie est la catégorie principale (icône, type du lieu). Jusqu'en 0.52,
+`comparerAuLieu` triait les deux listes : une permutation passait pour égale
+avant la pose ET à la relecture, alors que le SDK recevait l'ordre du classeur.
+`LISTES_ORDONNEES = ['categories']` le corrige ; services et modes de paiement
+restent comparés sans ordre.
+
+⭐⭐ **LES NOMS ALTERNATIFS SE COMPARENT** depuis la 0.53 : exclus de la
+comparaison (`CIBLES_HERITEES`), un ajout seul arrivait « = », non coché, et
+n'était jamais posé. Ils s'écrivent toujours par `UpdateObject`.
 
 ### Les catégories sont POSÉES — et leur référentiel est VIVANT (16/09/2026)
 
@@ -234,9 +270,14 @@ d'échec du script.
 
 ### 4.2 « Chargé » ne veut pas dire « modifiable »
 
-Le sondage attend un lieu **présent avec un nom**. Il **n'exige pas `isEditable()`** : un lieu
-verrouillé au-dessus du rang de l'éditeur **est bien chargé**, il sera simplement proposé en
+Le sondage attend un lieu **présent dans le modèle** (`lieuPret` : `v && v.attributes`), avec ou
+sans nom — jusqu'en 0.52 il exigeait un nom, et un lieu sans nom était déclaré introuvable alors
+que lui en donner un est l'usage même de la colonne Nom. Il **n'exige pas `isEditable()`** : un
+lieu verrouillé au-dessus du rang de l'éditeur **est bien chargé**, il sera simplement proposé en
 *Suggest an Edit*.
+
+⚠️ **Ce que WME fait d'un `UpdateObject` sur un lieu SaE n'est PAS MESURÉ.** La relecture après
+pose dira ce qui a réellement changé (§ 5), et le bilan compte ces lieux à part.
 
 `getLockStatus(venue)` rend trois valeurs :
 
@@ -252,28 +293,48 @@ verrouillé au-dessus du rang de l'éditeur **est bien chargé**, il sera simple
 ### 4.3 Le sondage
 
 Scrutation toutes les **80 ms**, délai maximal **4 000 ms** au préchargement, **3 000 ms** à
-l'application. Un lieu déjà en mémoire n'est **pas** recadré. `preloadVenues` accepte un
-`cancelRef.cancelled` pour **interrompre proprement** une longue boucle, et signale sa progression.
+l'application. Un lieu déjà en mémoire n'est **pas** recadré — ni au préchargement, ni à
+l'application depuis la 0.53. `preloadVenues` accepte un `cancelRef.cancelled` pour **interrompre
+proprement** une longue boucle, et signale sa progression.
 
-⚠️ **La vue de l'utilisateur est restaurée** après l'opération (`savedCenter` / `savedZoom`) : le
-script emprunte la carte, il ne la garde pas.
+⭐ **La vue n'est plus restaurée** (depuis la 0.51) : après un balayage ou une pose, la carte est
+**cadrée sur le périmètre des lieux** (`cadrerSurLesLieux`, zoom borné à [12, 19]). Revenir au
+point de départ faisait balayer le terrain pour ne rien montrer de ce qu'on venait de charger.
+
+⚠️ **Le calque « Lieux » est allumé s'il est éteint, puis RELU** : un clic qui n'a rien allumé ne
+vaut pas un calque allumé, et le message le dit dans la fenêtre (plus d'`alert()`).
 
 ---
 
 ## 5. L'application
 
-`runApply(items, allResults)` :
+`appliquerLignes()` → `poserLesLignes(items, env)` → `poserUnLieu(item, env)`, dans le bloc
+`banc:poser` que `tools/banc-application.mjs` extrait. Tout ce qui touche WME passe par `env`
+(`environnementDePose()` dans l'éditeur, des bouchons non complaisants dans le banc).
 
-1. recharge le lieu (`centerAndLoad`, 3 s) ;
-2. relit l'**ancien** nom et l'**ancienne** description — c'est ce qui alimente le rapport ;
-3. pose une action `UpdateObject` (`require('Waze/Action/UpdateObject')`) dans
-   `W.model.actionManager`, avec `id`, `name`, `description`, et **`aliases` repassés tels quels** ;
-4. avance la barre de progression ;
-5. à la fin, **restaure la vue** puis affiche le pied de page d'export.
+1. les lignes cochées sont lues **une fois**, en chaînes (`lignesCochees`) : un redessin ne peut
+   plus changer ce qui est posé ; l'aperçu est **figé** au clic (`const apercu = _apercu`) ;
+2. le lieu est pris dans le modèle, ou chargé s'il n'y est pas (`centerAndLoad`, 3 s) ;
+3. relecture de l'**ancien** nom et de l'**ancienne** description — c'est ce qui alimente le rapport ;
+4. une action `UpdateObject` (`require('Waze/Action/UpdateObject')`) avec `id`, `name`,
+   `description` et `aliases` (ceux du classeur, sinon ceux du lieu) ; puis les champs du lot D2
+   par `sdk.DataModel.Venues.updateVenue`, filtrés par la liste blanche ;
+5. ⭐⭐ **LA RELECTURE FAIT FOI, POUR TOUT** — nom et description compris depuis la 0.53. Ce qui
+   n'est pas retrouvé dans le lieu est un **manque** ; la ligne est alors `partial`.
 
-Chaque ligne produit un résultat de statut `applied` ou `timeout`. **Les échecs sont regroupés dans
-un rapport d'échec** affiché à l'écran, et l'historique n'enregistre « appliqué » que si l'opération
-s'est terminée sans échec.
+⚠️⚠️ **UNE EXCEPTION N'ARRÊTE PLUS LA POSE** (0.53) : chaque lieu a son `try`, et un lieu qui lève
+devient `erreur`, avec son message. Jusqu'en 0.52, une exception au lieu k laissait k-1 actions
+dans la pile, la barre figée, et aucun bilan.
+
+⚠️⚠️ **RIEN NE SE FAIT DEUX FOIS** : pendant un balayage ou une pose, le bouton, les cases, le
+menu d'onglet, le bouton de fichier et le dépôt sont bloqués (`occuper`). Après la pose, les
+lignes posées sont **décochées** et relues sur le lieu vivant (✔ si tout est posé, l'écart restant
+sinon) ; les lignes en échec restent cochées, et **Réessayer** ne repose qu'elles.
+
+Statuts : `applied`, `partial`, `timeout` (introuvable), `erreur`. Le bilan compte chacun, nomme
+les lieux en échec, compte à part les lieux **SaE**, et dit combien d'actions **cette pose** a
+ajoutées à la pile (rien quand on ne peut pas le lire — plus jamais « 0 » sur une erreur).
+L'historique note « appliqué » dès qu'au moins un lieu a été posé.
 
 ⚠️ Le script passe par `require('Waze/Action/UpdateObject')` et par `W.model` — **pas par le SDK**.
 C'est le point d'attache le plus fragile du script : c'est là qu'il cassera le jour où WME changera.
@@ -282,18 +343,21 @@ C'est le point d'attache le plus fragile du script : c'est là qu'il cassera le 
 
 ## 6. Le rapport Excel
 
-`exportReport(eventName, results)` produit un classeur d'une feuille :
+`exportReport(eventName, results)` produit un classeur d'une feuille, **dans la langue du script** :
 
 | Colonne | Contenu |
 |---|---|
-| 1 | Ancien nom |
-| 2 | Nouveau nom |
-| 3 | Ancienne description |
-| 4 | Nouvelle description |
-| 5 | Statut (`appliqué` / `délai dépassé`) |
+| 1 | Permalien |
+| 2 | Nom avant |
+| 3 | Nom après |
+| 4 | Description avant |
+| 5 | Description après |
+| 6 | Statut (appliqué / partiel / introuvable / erreur, « (SaE) » s'il y a lieu) |
+| 7 | **Champs non posés** — ce qu'il faut reprendre avant d'enregistrer |
+| 8 | Message d'erreur |
 
-Largeurs fixées (30, 30, 45, 45, 15). Nom de feuille : `JJ-MM-AAAA <événement>`, **tronqué à 31
-caractères** (limite Excel). Nom de fichier : `POI_Report_<événement>_<date>.xlsx`.
+Nom de feuille : `AAAA-MM-JJ <événement>`, caractères interdits par Excel remplacés, **tronqué à 31
+caractères**. Nom de fichier : `POI_Report_<événement>_<AAAA-MM-JJ>.xlsx`.
 
 ⚠️ **XLSX en version *lite* ne gère pas les styles** : l'en-tête n'est pas coloré, et c'est
 volontaire — ne pas ajouter de dépendance pour cela.
@@ -302,30 +366,43 @@ volontaire — ne pas ajouter de dépendance pour cela.
 
 ## 7. Interface
 
-Le script s'installe dans le **panneau latéral** par `W.userscripts.registerSidebarTab(scriptId)`,
-avec une **icône de pin à la place du nom** (le nom reste en infobulle).
+**Le panneau porte les réglages, la fenêtre porte le travail** (depuis la 0.52) : le panneau
+latéral de WME vide son contenu dès qu'on sélectionne un objet, on ne peut pas y travailler.
 
-L'écran de travail est un **overlay déplaçable** (`makeDraggable`), avec :
+**L'onglet Scripts suit la charte commune** (WCT, WJN, WRP, WDA — valeurs relevées dans WME le
+25/09/2026) : l'icône du script (la **même** que `@icon`, sur l'onglet, en tête du panneau, dans la
+fenêtre et sur le bouton de la carte), `POI Event Updater vX.YY.ZZ`, la pastille de nouvelle
+version, une phrase d'introduction, le bouton qui ouvre la fenêtre, les fichiers récents, l'aide
+**repliable** (trois volets fermés), et au pied 💬 Discuss · 🔗 GreasyFork · GitHub puis « ✍️
+Appliquer écrit dans l'éditeur ; le script n'enregistre jamais » — **pas** le « 🔒 ne modifie
+jamais la carte » des scripts voisins : celui-ci écrit.
 
-- le choix du fichier et la liste des **fichiers récents** ;
-- un **filtre par nom** ;
-- le tableau : recherche, nom, description — **éditables** ;
-- une barre de progression pendant le préchargement puis pendant l'application ;
-- un pied de page d'export une fois l'application terminée.
+Couleurs : **#2196f3** pour les titres et les accents, **#1976d2** pour ce qui est plein avec du
+texte blanc (4,60:1 — décision de l'auteur, le #2196f3 n'y donne que 3,12:1). Un seul bouton plein
+par écran : Appliquer ; le filtre « ≠ Écarts » actif se marque d'un contour.
 
-Deux points d'accessibilité tenus dans le code : chaque bouton porte un `title` **recopié en
-`aria-label`**.
+La **fenêtre** (bouton dans `.overlay-buttons-container`, `order:100`) porte le bandeau du fichier
+et de l'onglet, le tableau (case en première colonne, état en trois signes : liseré, fond, badge),
+le filtre, le tri par nom ou description, et le pied avec Appliquer. Elle est **non modale**
+(`role="dialog"`) ; le focus y entre à l'ouverture et revient au bouton de la carte à la fermeture.
 
-### 7.1 La géométrie de l'overlay — un défaut à ne pas refaire
+⭐⭐⭐ **UNE RETOUCHE DANS L'APERÇU RE-DÉCIDE LA CASE** (`caseApresRetouche`) : corriger le nom
+d'une ligne « = » la coche ; revenir à la valeur du lieu la décoche ; vider le nom la décoche ; une
+ligne qui RETIRE n'est jamais touchée. La 0.52 l'avait perdu : la retouche était jetée en silence.
 
-Historique de la 0.48, en deux temps :
+Les **anomalies du classeur** restent visibles au-dessus du tableau (compte toujours visible,
+liste repliée au-delà de trois) — jusqu'en 0.52, le rendu du tableau les effaçait.
 
-1. l'overlay se retrouvait **collé en haut à gauche** parce qu'une géométrie **sauvée à zéro** était
-   relue telle quelle ;
-2. la correction a été de **ne plus mémoriser la hauteur** : elle **s'adapte au contenu**.
+### 7.1 La géométrie de la fenêtre
 
-⚠️ `makeDraggable` ne persiste la position qu'**après** que la position initiale a été posée
-(`geomReady`) — sans ce drapeau, on réécrit un zéro.
+⭐ **Bornée à gauche de la colonne des boutons de la carte, mesurée à chaque geste**
+(`bornesCarte` à l'ouverture, au déplacement, au redimensionnement, au redimensionnement du
+navigateur). Déplacer par l'en-tête, redimensionner par le coin — **à la souris ou au clavier**
+(flèches, Maj pour un grand pas, quand l'en-tête ou le coin a le focus : WCAG 2.5.7). Double-clic
+sur l'en-tête : retour à la place par défaut.
+
+⚠️ **Repliée, la fenêtre ne mesure que son en-tête** : on garde alors la hauteur d'avant
+(`memoriserGeometrie`), sans quoi elle se rouvrait à 120 px.
 
 ---
 
@@ -336,22 +413,33 @@ Tout vit dans le `localStorage`, sans bibliothèque :
 | Clé | Contenu |
 |---|---|
 | `peu_file_history` | Les **5 derniers fichiers** (`HISTORY_MAX = 5`) : nom, date de chargement, date d'application |
-| `peu_overlay_geom` | Position de l'overlay (**pas la hauteur**, § 7.1) |
+| `peu_ui_geom` | Position et taille de la fenêtre (`{x, y, w, h}`) |
+| `peu_maj` | Dernière vérification de version : `{t, v}` (au plus une par 24 h) |
 
 `recordFileLoaded` / `recordFileApplied` distinguent explicitement **« chargé »** et
-**« appliqué »** : un fichier chargé mais jamais appliqué s'affiche « ✔ Jamais appliqué ». C'est
-une information, pas un vide.
+**« appliqué »** : un fichier chargé mais jamais appliqué s'affiche « Jamais appliqué ». ⚠️
+`recordFileApplied` n'était plus appelée depuis la refonte de la 0.52 : l'historique disait
+« jamais appliqué » de tout. Rétabli en 0.53.
 
 ---
 
 ## 9. Internationalisation
 
-**Deux langues** : français et anglais. Détection sur `W.userscripts.state.locale`, puis
-`document.documentElement.lang`, puis `navigator.language` — **tout ce qui ne commence pas par `fr`
-est traité comme anglais**.
+**Huit langues** (charte commune) : `fr`, `en`, `de`, `es`, `it`, `pt-BR`, `pt-PT`, `he`.
+Détection sur `W.userscripts.state.locale`, puis `document.documentElement.lang`, puis
+`navigator.language` ; le portugais se décide par le pays ; toute autre langue → anglais. L'hébreu
+passe la fenêtre et le panneau en `dir="rtl"` (le CSS est en propriétés logiques), les champs de
+saisie sont en `dir="auto"`.
 
-Le dictionnaire est **mémoïsé** (`_strings`), construit au premier appel de `t()` : sans cela,
-l'objet entier serait reconstruit à chaque appel.
+Le dictionnaire est **mémoïsé** (`_strings`), construit au premier appel de `t()`. Il porte aussi
+les libellés des colonnes (`ch…`), les motifs des champs montrés (`mo…`) et les valeurs de WME
+(`va…`) : `CHAMPS.libelle` et `VALEURS_WME` restent **la donnée**, en français, et le repli quand
+aucune traduction n'est fournie. ⚠️ La **lecture** du classeur, elle, reconnaît les libellés
+français et les clés WME, pas ceux des autres langues — seules les catégories sont lues dans la
+langue de l'éditeur.
+
+Dates et nombres dans la langue du script (`localeDuScript`) ; noms de fichiers en `AAAA-MM-JJ`.
+Français : espace fine insécable avant `: ; ! ?`, insécable dans « » — `check-libelles` le vérifie.
 
 ⚠️ `_peuLang` est initialisé **dans `initScript`, avant tout appel à `t()`**.
 
@@ -359,23 +447,32 @@ l'objet entier serait reconstruit à chaque appel.
 
 ## 10. Contraintes non négociables
 
-1. **`@grant none`** — le script ne fait aucun appel réseau propre ; seuls les deux `@require`
-   chargent SheetJS.
+1. **`@grant GM_xmlhttpRequest` et `unsafeWindow`, `@connect update.greasyfork.org` seulement** —
+   pour la pastille de nouvelle version (la politique de sécurité de WME interdit d'appeler
+   GreasyFork depuis la page). ⚠️⚠️ **Accorder une permission place le script dans un bac à
+   sable** : `W`, `OpenLayers`, `require` et `getWmeSdk` ne s'y lisent que par `unsafeWindow`.
+   Ces quatre noms sont donc **déclarés dans le script** et posés au démarrage (`_peuInit`) ;
+   `banc-demarrage` fait tourner le script dans les deux mondes (page et bac à sable).
 2. **Ne jamais appliquer sans avoir montré.** Le tableau des changements est une étape obligatoire.
 3. **Ne jamais taire un échec.** Un `timeout` figure dans le rapport et dans le pied d'échec.
 4. **Ne pas resserrer les bornes de zoom [16, 17]** sans refaire la mesure (§ 4.1).
 5. **Ne pas exiger `isEditable()`** pour considérer un lieu chargé (§ 4.2).
-6. **Repasser les `aliases`** tels quels dans chaque `UpdateObject`.
-7. **Restaurer la vue de l'utilisateur** après toute opération qui déplace la carte.
-8. **Ne jamais publier de fichier de données réelles** (`ACO Events.xlsx` et assimilés).
+6. **Repasser les `aliases`** tels quels dans chaque `UpdateObject` quand le classeur n'en porte pas.
+7. **Cadrer la carte sur le périmètre des lieux** après un balayage ou une pose (§ 4.3) — la
+   restauration de la vue a été retirée en 0.51, ne pas la réintroduire.
+8. **Ne jamais publier de fichier de données réelles** (`ACO Events.xlsx` et assimilés), **ni un
+   rapport d'audit** (`AUDIT-*.md`, exclus par `.gitignore`).
+9. **Ne jamais cesser d'envoyer une description vide**, ni décocher d'office son effacement : le
+   retour à l'onglet ordinaire en dépend (§ 3).
 
 ---
 
 ## 11. Ce qui reste ouvert et fragile
 
-- **Presque aucun harnais de test.** Deux bancs (0.49) : `tools/banc-colonnes.mjs` tient la règle
-  des colonnes, `tools/banc-chargement.mjs` rejoue le chargement d’un vrai classeur hors WME.
-  **Tout le reste** — préchargement, aperçu, application, rapport — ne se vérifie que dans WME.
+- **Le harnais ne voit pas la carte.** Quinze bancs et contrôles (liste dans `ETAT_ET_REPRISE.md`),
+  dont `banc-application` pour le chemin qui écrit, avec des bouchons qui refusent l'inconnu.
+  **Ni `UpdateObject`, ni le vrai SDK, ni un lieu SaE** ne vivent dans un banc : l'essai d'Appliquer
+  dans WME, sans enregistrer, reste le dernier mot.
 - **L'attache à `W.model` et à `require('Waze/Action/UpdateObject')`** n'est pas du SDK : c'est le
   point qui cassera en premier lors d'une évolution de WME. Une migration vers
   `sdk.DataModel.Venues` serait le chantier naturel, et devrait conserver la sémantique du § 4.2.
@@ -383,17 +480,19 @@ l'objet entier serait reconstruit à chaque appel.
   0.49 (§ 3.0), une colonne **ajoutée** est ignorée par les versions qui ne la connaissent pas, et
   l'ordre n'est plus un contrat — mais **rien ne dit à l'utilisateur qu'une colonne est ignorée
   faute d'être comprise** : un fichier plus riche que le script reste muet.
-- **Le rapport ne distingue pas `ok` / `sae` / `hard`** : `getLockStatus` est calculé et affiché à
-  l'écran, mais le statut du rapport se limite à `applied` / `timeout`.
+- **Ce que WME fait d'une pose sur un lieu SaE n'est pas mesuré** : la relecture dira ce qui a
+  changé, et le bilan comme le rapport marquent ces lieux « (SaE) ».
+- **La lecture du classeur reconnaît les valeurs en français et les clés WME** : un classeur
+  rempli en allemand avec les libellés allemands de WME verrait ses valeurs refusées (et signalées).
 
 ### Annexes du dépôt
 
 | Fichier | Contenu |
 |---|---|
 | `WME_POI_Event_Updater_Template.xlsx` | Gabarit vierge — **la référence du format** |
-| `tools/banc-colonnes.mjs` | Banc de la lecture des colonnes — `node tools/banc-colonnes.mjs` |
-| `tools/banc-chargement.mjs` | Banc du chargement d’un classeur — rejoue le code du script (SheetJS à fournir) |
+| `tools/` | Bancs et contrôles — la liste et l'angle mort de chacun sont dans `ETAT_ET_REPRISE.md` |
+| `tools/banc-chargement.mjs` | Banc du chargement d’un classeur — rejoue le code du script (SheetJS **0.20.3** à fournir) |
 | `Capture 0.*.png` | Captures par version, publiées avec les annonces |
-| `Descr. HTML GreasyFork 0.23.txt` | Description publiée |
+| `Descr. GreasyFork 0.53.md` | Descriptions GreasyFork EN et FR, à recopier à la publication |
 | `Archives/` | Anciennes versions (ignoré par git) |
 | `ACO Events.xlsx` | **Données réelles — ignoré par git, ne pas publier** |

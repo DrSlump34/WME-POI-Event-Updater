@@ -9,3 +9,5 @@ desktop.ini
 .DS_Store
 # Fichiers d'essai locaux (permaliens et noms de lieux reels)
 Essai*
+# Rapports d audit : ils decrivent les failles d un script en service — jamais dans le depot public
+AUDIT-*.md

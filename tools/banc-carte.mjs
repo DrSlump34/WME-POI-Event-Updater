@@ -136,7 +136,7 @@ if (!application) {
     echecs.push('appliquerLignes() est introuvable : le contrôle ne mesure plus rien');
 } else {
     verifier('l’application recadre sur le périmètre en finissant',
-        true, application.includes('cadrerSurLesLieux(_apercu.venueMap)'));
+        true, /cadrerSurLesLieux\(_?apercu\.venueMap\)/.test(application));
 }
 
 /* ⚠️ UNE SEULE FENÊTRE, PAR CONSTRUCTION : `construireOverlay` rend celle qui

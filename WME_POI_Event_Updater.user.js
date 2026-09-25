@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.52
+// @version      0.53.00
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -15,10 +15,13 @@
 // @match        https://waze.com/*/editor*
 // @match        https://beta.waze.com/*/editor*
 // @match        https://beta.waze.com/fr/editor?env=row*
-// @grant        none
+// @homepageURL  https://github.com/DrSlump34/WME-POI-Event-Updater
+// @supportURL   https://www.waze.com/discuss/t/script-wme-poi-event-updater/404593
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @connect      update.greasyfork.org
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+
-// @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
-// @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
+// @require      https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js#sha256=cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41
 // @downloadURL  https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.user.js
 // @updateURL    https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.meta.js
 // ==/UserScript==
@@ -26,7 +29,24 @@
 (function() {
     'use strict';
 
+    /* ⚠️⚠️ LA PAGE SE LIT PAR `unsafeWindow`. La pastille de nouvelle version
+       exige GM_xmlhttpRequest (la politique de sécurité de WME interdit d'appeler
+       GreasyFork depuis la page) ; accorder une permission fait tourner le
+       script dans un bac à sable, où `W`, `OpenLayers`, `require` et
+       `getWmeSdk` n'existent plus comme variables globales.
+       ⇒ Ces quatre noms sont DÉCLARÉS ICI, et posés depuis la page au démarrage
+         (`_peuInit`) : chaque usage du script désigne ces variables-ci, jamais
+         une globale qui pourrait manquer. banc-demarrage le vérifie en faisant
+         tourner le script dans un faux bac à sable. */
+    const pw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
+    let W = null, OpenLayers = null, require = null;
+
     const scriptId   = 'poi-event-updater';
+    const URL_DISCUSS = 'https://www.waze.com/discuss/t/script-wme-poi-event-updater/404593';
+    const URL_GF      = 'https://greasyfork.org/scripts/578776';
+    const URL_GH      = 'https://github.com/DrSlump34/WME-POI-Event-Updater';
+    const URL_INSTALLER = 'https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.user.js';
+    const URL_META      = 'https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.meta.js';
     const HISTORY_KEY = 'peu_file_history'; // clé localStorage
     const GEO_KEY     = 'peu_ui_geom';      // position et taille de la fenêtre
     /* ⚠️ LA VERSION EST LUE DANS L’EN-TÊTE DU SCRIPT, jamais recopiée : deux
@@ -37,9 +57,12 @@
     const PEU_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version)
         ? GM_info.script.version : '?';
     const HISTORY_MAX = 5;
-    const GEOM_KEY = 'peu_overlay_geom';    // taille + position mémorisées de l'overlay
-    // Icône de l'onglet : pin de localisation (= POI), détouré, affiché à la place du nom
-    const TAB_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgd2lkdGg9JzI0JyBoZWlnaHQ9JzI0Jz48cGF0aCBmaWxsPScjMkM2RUQ1JyBkPSdNMTIgMkM4LjEzIDIgNSA1LjEzIDUgOWMwIDUuMjUgNyAxMyA3IDEzczctNy43NSA3LTEzYzAtMy44Ny0zLjEzLTctNy03eicvPjxjaXJjbGUgY3g9JzEyJyBjeT0nOScgcj0nMi42JyBmaWxsPScjZmZmZmZmJy8+PC9zdmc+';
+    /* ⭐⭐ UNE SEULE ICÔNE, CELLE DE L'EN-TÊTE (`@icon`) : sur l'onglet, en tête du
+       panneau, dans la fenêtre et sur le bouton de la carte (charte commune).
+       Il y en avait trois — un carré sur GreasyFork, une épingle sur l'onglet et
+       le bouton, un emoji dans les titres. check-architecture compare cette
+       chaîne à celle de l'en-tête : les deux ne peuvent pas diverger. */
+    const ICONE = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+';
     let poiData = [];
     /* ⚠️ LA POIGNEE VERS LE CHAMP DE FICHIER, pas une seconde lecture : le
        chemin qui lit le classeur valide vingt règles, tient un rapport
@@ -49,11 +72,19 @@
     let _peuLang = 'en'; // initialisé dans initScript avant tout appel à t()
 
     // Détection langue
+    /**
+     * LA LANGUE DU SCRIPT : celle de WME, parmi les huit de la charte.
+     * ⚠️ Le portugais se décide par le PAYS (pt-BR / pt-PT) : les deux diffèrent
+     *    par le vocabulaire de l'éditeur, pas seulement par l'orthographe.
+     */
     function detectLang() {
         try {
-            const l = W?.userscripts?.state?.locale || document.documentElement.lang || navigator.language || 'en';
-            return l.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-        } catch { return 'en'; }
+            const l = String((W && W.userscripts && W.userscripts.state && W.userscripts.state.locale)
+                || document.documentElement.lang || navigator.language || 'en').toLowerCase();
+            if (l.startsWith('pt')) return l.indexOf('br') !== -1 ? 'pt-BR' : 'pt-PT';
+            const c = l.slice(0, 2) === 'iw' ? 'he' : l.slice(0, 2);
+            return ['fr', 'en', 'de', 'es', 'it', 'he'].indexOf(c) !== -1 ? c : 'en';
+        } catch (e) { return 'en'; }
     }
 
     // Dictionnaire i18n construit une seule fois (mémoïsé) au 1er appel, puis réutilisé
@@ -62,7 +93,7 @@
     function t(key, ...args) {
         if (!_strings) _strings = {
             fr: {
-                tabTitle:'POI Events', tabTooltip:'Mise à jour POI via Excel',
+                tabTitle:'WME POI Event Updater',
                 panelTitle:'POI Event Updater', chooseFile:'📂 Choisir un fichier',
                 chooseFileTitle:'Charger un classeur .xlsx depuis votre disque',
                 selectSheet:'L’onglet du classeur à poser',
@@ -70,84 +101,123 @@
                 fabTitleOn:'POI Event Updater — masquer la fenêtre',
                 btnApplyNone:'Rien de coché', btnApplyOne:'Appliquer 1 ligne',
                 btnApplyN:(n)=>`Appliquer les ${n} lignes cochées`,
-                btnApplyTitle:'Poser les valeurs des lignes cochées dans l’éditeur. Rien n’est enregistré : vous relirez dans WME.',
-                btnExportTitle:'Enregistrer le rapport de cet aperçu',
+                btnApplyTitle:'Poser les valeurs des lignes cochées dans l’éditeur. Rien n’est enregistré : vous relirez dans WME.',
+                btnExportTitle:'Enregistrer le rapport de cette pose',
                 footerHelpVide:'Rien n’est écrit sur la carte tant que vous n’avez pas cliqué sur Appliquer.',
                 guideFichier:'Choisissez le classeur de l’événement.',
                 guideFichierSuite:'Ensuite vous choisirez l’onglet, puis vous relirez chaque ligne avant d’appliquer.',
                 guideOnglet:'Choisissez l’onglet à poser.',
-                guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
+                guideOngletSuite:'Un onglet par événement. Celui « Hors Evenement » remet les lieux dans leur état ordinaire.',
                 colSelect:'Poser', colEtat:'État',
                 dropLigne1:'📄 Déposez un classeur ici',
                 dropLigne2:'ou cliquez pour le choisir',
                 dropTitre:'Déposez un fichier .xlsx n’importe où sur cette fenêtre, ou cliquez pour le choisir',
-                dropRefus:(nom)=>`« ${nom} » n’est pas un classeur Excel : seuls les fichiers .xlsx et .xls se chargent ici.`,
+                dropRefus:(nom)=>`« ${nom} » n’est pas un classeur Excel : seuls les fichiers .xlsx et .xls se chargent ici.`,
                 sbOuvrir:'Afficher la fenêtre', sbOuvrirTitre:'Ouvrir la fenêtre de travail — c’est là qu’on charge un classeur et qu’on relit avant d’appliquer',
-                sbReglages:'Réglages', sbReglagesNote:'Langue, densité d’affichage, comportement de la carte — à venir. L’emplacement est réservé.',
-                cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
-                footerHelp:'Décochez ce que vous ne voulez pas poser. Les lignes orange RETIRENT des valeurs : elles ne sont jamais cochées d’office.',
+                sbIntro:'Met à jour en lot le nom, la description et les champs des lieux, depuis un classeur : un onglet par événement.',
+                sbAide:'Aide', historyVide:'Aucun classeur chargé pour l’instant.',
+                aideClasseurT:'Le classeur',
+                aideClasseur:'Un onglet par événement, une ligne par lieu. Les colonnes se lisent par leur en-tête : permalien, nom, description, puis les champs du lieu (téléphone, site, catégories, services, parking…).\nUne cellule vide d’un champ du lieu ne demande rien. Une description vide EFFACE celle du lieu : c’est ainsi qu’un onglet « Hors Evenement » remet les lieux à nu.',
+                aideRelireT:'Relire et appliquer',
+                aideRelire:'Chaque ligne montre l’avant (barré) et l’après. Ce qui change est coché d’office ; une retouche dans l’aperçu re-décide la case.\nAppliquer écrit dans l’éditeur sans enregistrer : relisez sur la carte, puis cliquez sur Enregistrer. Les lieux en échec restent cochés, pour réessayer.',
+                aideEtatsT:'Les états d’une ligne',
+                aideEtats:'Chiffre vert : champs à poser.\n-n orange : appliquer RETIRERAIT n valeurs — jamais coché d’office.\nSaE : lieu verrouillé au-dessus de votre niveau, la modification part en suggestion.\nL7 : verrou du staff, rien ne se pose.\n? : lieu introuvable.\n✔ : posé, en attente d’enregistrement.',
+                sbEcrit:'✍️ Appliquer écrit dans l’éditeur ; le script n’enregistre jamais.',
+                majDispo:(v)=>`Nouvelle version ${v} disponible.`, majInstaller:'Installer',
+                cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
+                footerHelp:'Décochez ce que vous ne voulez pas poser. Les lignes orange RETIRENT des valeurs : elles ne sont jamais cochées d’office.',
+                footerMasquees:(n)=>`${n} ligne(s) cochée(s) sont masquées par le filtre — elles seront posées aussi.`,
                 bilanPartiel:(n)=>`⚠️ ${n} lieu(x) n’ont reçu qu’une partie des valeurs — voir le rapport.`,
-                bilanEchec:(n)=>`⚠️ ${n} lieu(x) n’ont pas pu être chargés : rien n’y a été posé.`,
-                bilanNonEnregistre:(n)=>`${n} modification(s) en attente dans WME — RIEN N’EST ENREGISTRÉ : relisez, puis cliquez sur Enregistrer dans l’éditeur.`,
+                bilanEchec:(n)=>`⚠️ ${n} lieu(x) n’ont pas pu être traités — leurs lignes restent cochées :`,
+                bilanSae:(n)=>`⚠️ ${n} lieu(x) verrouillé(s) au-dessus de votre niveau : la modification passe en suggestion (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} modification(s) ajoutée(s) à la pile de WME — RIEN N’EST ENREGISTRÉ : relisez, puis cliquez sur Enregistrer dans l’éditeur.`,
+                bilanNonEnregistreSansCompte:'RIEN N’EST ENREGISTRÉ : relisez, puis cliquez sur Enregistrer dans l’éditeur.',
+                bilanErreurGenerale:(m)=>`✖ La pose n’a pas pu commencer : ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ' : ' + err : ''}`,
+                occupeDepot:'Un balayage ou une pose est en cours : attendez la fin avant de charger un autre classeur.',
                 cbTitre:'Poser cette ligne dans l’éditeur',
                 cbFige:'Cette ligne ne peut pas être posée — voir le badge d’état',
                 colNameTitle:'Le nom à poser. Modifiable avant d’appliquer.',
-                colDescTitle:'La description à poser. Une cellule vide ne demande rien et n’efface rien.',
+                colDescTitle:'La description à poser. Une cellule vide EFFACE la description du lieu.',
+                descEffacee:'⚠ la description du lieu sera effacée',
+                nomEfface:'⚠ le nom du lieu serait effacé',
                 triTitre:'Trier sur cette colonne',
                 badgePerteTitle:(n)=>`Appliquer RETIRERAIT ${n} valeur(s) au lieu`,
                 badgeDiffTitle:(n)=>`${n} champ(s) à poser`,
-                badgeRienTitle:'Rien à poser : le lieu porte déjà ces valeurs',
-                badgeOffTitle:'Lieu introuvable dans l’éditeur : rien ne peut être posé',
-                noFile:'Aucun fichier choisi', showBtn:'▶ Afficher modifications',
-                historyTitle:'Fichiers récents', histLoaded:'📂 Chargé :', histApplied:'✔ Appliqué :',
-                histNeverApplied:'✔ Jamais appliqué', filterPlaceholder:'🔍 Filtrer par nom…',
-                draggable:'✥ déplaçable',
-                colSearch:'🔍', colName:'Nom', colDesc:'Description',
-                btnMinimize:'Réduire / Restaurer', btnRestore:'Restaurer',
-                btnApply:'Appliquer', btnClose:'Fermer',
-                btnDiffActive:'≠ Diff', btnDiffAll:'≡ Tout', btnUpToDate:'✅ À jour',
-                tooltipDiffOn:'Afficher tous les POI', tooltipDiffOff:'Afficher uniquement les POI modifiés',
-                footerSae:'⚠️ = Suggest an Edit (lock supérieur à votre niveau).',
-                footerHard:'🔒 = Verrou L7 staff, non modifiable.',
-                emptyMsg:'✅ Aucune modification à apporter pour cet événement.',
-                emptyShowAll:'Voir tous les POI',
-                lockSaeTitle:(lock,user)=>`Verrou L${lock+1} — votre niveau : L${user+1} → Suggest an Edit`,
+                badgeRienTitle:'Rien à poser : le lieu porte déjà ces valeurs',
+                badgeOffTitle:'Lieu introuvable dans l’éditeur : rien ne peut être posé',
+                badgePoseTitle:'Posé dans l’éditeur — en attente d’enregistrement',
+                badgeSaeTitle:'Lieu verrouillé au-dessus de votre niveau : la modification passera en suggestion (SaE)',
                 lockHardTitle:'Verrou niveau 7 (staff Waze) — édition impossible',
-                unloadedLabel:'⚠ non chargé', unloadedTitle:"Ce POI n'a pas pu être chargé lors du préchargement",
-                diffTitle:"Valeur différente de l'état actuel",
-                loading:(n,total)=>`Chargement des POI… ${n} / ${total}`,
+                noFile:'Aucun fichier choisi',
+                historyTitle:'Fichiers récents', histLoaded:'📂 Chargé :', histApplied:'✔ Appliqué :',
+                histNeverApplied:'Jamais appliqué', clearHistoryTitle:'Effacer l’historique',
+                filterPlaceholder:'🔍 Filtrer par nom…',
+                colName:'Nom', colDesc:'Description',
+                btnReduce:'Réduire', btnRestore:'Restaurer', btnApply:'Appliquer', btnClose:'Fermer',
+                btnDiffActive:'≠ Écarts', btnDiffAll:'≡ Tout',
+                tooltipDiffOn:'N’afficher que les lieux à modifier', tooltipDiffOff:'Afficher tous les lieux',
+                deplacerAide:'Déplacer la fenêtre : glisser, ou flèches du clavier (Maj : grand pas). Double-clic : position par défaut.',
+                redimAide:'Redimensionner la fenêtre : glisser, ou flèches du clavier (Maj : grand pas)',
+                loadingPois:(n,total)=>`Chargement des lieux… ${n} / ${total}`,
                 applying:(n,total)=>`Application… ${n} / ${total}`,
-                poisLoaded:(n)=>`✔ ${n} POI chargés`, noPoisLoaded:'✖ Aucun POI valide chargé',
-                anomalies:(n)=>`⚠️ ${n} anomalie${n>1?'s':''} détectée${n>1?'s':''}`,
-                timeoutReport:(n)=>`⚠️ ${n} POI non appliqué${n>1?'s':''} (timeout) :`,
-                btnRetry:(n)=>`🔄 Réessayer (${n} POI)`,
-                successMsg:(n)=>`✔ ${n} POI appliqués avec succès`,
+                cancelBtn:'Annuler',
+                noPoisLoaded:'✖ Aucun lieu valide chargé',
+                anomalies:(n)=>`⚠️ ${n} anomalie${n>1?'s':''} dans le classeur`,
+                btnRetry:(n)=>`🔄 Réessayer (${n} lieu${n>1?'x':''})`,
+                successMsg:(n)=>`✔ ${n} lieu${n>1?'x':''} posé${n>1?'s':''}`,
                 btnExport:'📥 Exporter le rapport',
                 sheetHeaderErr:'En-têtes de colonnes absentes ou non reconnues — onglet ignoré',
-                sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
-                plusApplique:'✔ appliqué :', plusMain:'✋ à poser à la main :', plusRefus:'⚠ non reconnu :',
-                plusConforme:'· déjà conforme :', plusAvant:'remplace :', plusRetire:'RETIRE',
+                sheetHeaderFallback:'en-têtes non reconnues : colonnes lues par position (A = permalien, B = nom, C = description)',
+                sheetHeaderConflit:'des en-têtes reconnues ne sont pas à leur place A/B/C — onglet ignoré : nommez les trois colonnes (permalien, nom, description)',
+                colonneDoublon:(lib, cols)=>`deux colonnes pour « ${lib} » (${cols}) : seule la première est lue`,
+                plusApplique:'✔ à poser :', plusMain:'✋ à poser à la main :', plusRefus:'⚠ non reconnu :',
+                plusConforme:'· déjà conforme :', plusAvant:'remplace :', plusRetire:'RETIRE',
                 urlInvalid:'URL invalide',
                 urlBadHost:'URL non reconnue (doit être waze.com ou beta.waze.com/…/editor)',
                 urlNoEnv:'paramètre env= manquant', urlBadLat:'lat= absent ou invalide',
                 urlBadLon:'lon= absent ou invalide', urlBadZoom:'zoomLevel= absent ou invalide',
-                urlNoVenues:'venues= absent', urlNoVid:"impossible d'extraire l'ID du venue",
-                nameEmpty:'nom vide', dupRow:(a,b)=>`Lignes ${a} et ${b} : permalink en double`,
-                reportHeaders:['POI (Avant Nom)','Après Nom','Avant Desc','Après Desc','Statut'],
-                statusApplied:'✔ Appliqué', statusTimeout:'✖ Timeout',
-                diffCount:(n)=>`${n} diff`, upToDateTitle:'À jour', noPoi:'Aucun POI trouvé.',
-                rowLabel:'Ligne', loadingPois:(n,total)=>`Chargement des POI… ${n} / ${total}`,
-                masterCbTitle:'Tout cocher / décocher', searchClearTitle:'Effacer',
-                btnReduce:'Réduire', poiCountDiff:(n)=>`${n} POI (diff)`, poiCount:(n)=>`${n} POI`,
-                badgeSae:(n)=>`${n} ⚠️ SaE`, badgeSaeTitle:'Ces POI seront soumis en Suggest an Edit',
-                badgeHardTitle:'Ces POI sont verrouillés niveau 7 — édition impossible',
-                layerOffMsg:'⚠️ Le calque "Lieux" est désactivé dans WME.\n\nActivez-le (menu Calques > Lieux) avant de lancer le script.',
-                cancelBtn:'Annuler', preloadCancelled:'Préchargement annulé.', clearHistoryTitle:"Effacer l'historique",
-                xlsxMissing:'⚠️ Librairie Excel (XLSX) non chargée. Vérifiez votre connexion ou autorisez cdnjs.cloudflare.com / jsdelivr.net, puis rechargez la page (F5).',
-                locateTitle:'Recentrer la carte sur ce POI',
+                urlNoVenues:'venues= absent', urlNoVid:'impossible de lire l’identifiant du lieu',
+                urlAutreEnv:(env, courant)=>`permalien d’un autre serveur (env=${env}, l’éditeur est en ${courant}) : le lieu ne sera pas trouvé`,
+                urlPlusieursLieux:'plusieurs lieux dans venues= : seul le premier est lu',
+                nameEmpty:'nom vide', dupRow:(a,b)=>`Lignes ${a} et ${b} : permalien en double`,
+                rowLabel:'ligne',
+                reportHeaders:['Permalien','Nom avant','Nom après','Description avant','Description après','Statut','Champs non posés','Erreur'],
+                statusApplied:'✔ Appliqué', statusPartial:'⚠ Partiel', statusTimeout:'✖ Introuvable', statusErreur:'✖ Erreur',
+                masterCbTitle:'Tout cocher / décocher',
+                poiCount:(n)=>`${n} lieu${n>1?'x':''}`,
+                layerOffMsg:'⚠️ Le calque « Lieux » est éteint et n’a pas pu être allumé : activez-le (Calques > Lieux), puis rechoisissez l’onglet.',
+                xlsxMissing:'⚠️ La bibliothèque Excel (SheetJS) n’a pas pu se charger. Vérifiez votre connexion ou autorisez cdn.sheetjs.com, puis rechargez la page (F5).',
+                locateTitle:'Centrer la carte sur ce lieu',
+                valOui:'oui', valNon:'non',
+                chPerm:'Permalien', chName:'Nom', chDesc:'Description', chAliases:'Noms alternatifs',
+                chPhone:'Téléphone', chUrl:'Site web', chServices:'Services', chCategories:'Catégories',
+                chParkingType:'Type de parking', chHasTBR:'Type variable', chCostType:'Tarif',
+                chPaymentType:'Modes de paiement', chParkingServices:'Services du parking', chLotType:'Situation',
+                chSpots:'Nombre de places', chCanExit:'Sortie quand fermé',
+                chHours:'Horaires', chAddress:'Adresse', chEntryPoints:'Points d’entrée', chOperator:'Opérateur de parking',
+                chGoogleName:'Nom Google', chGoogleCategory:'Catégorie Google', chGooglePosition:'Position Google',
+                moHours:'WME attend des créneaux, pas une phrase',
+                moAddress:'WME attend un numéro et une rue de son propre modèle',
+                moEntryPoints:'ce sont des points sur la carte, pas du texte',
+                moOperator:'liste fermée chez WME, dont les clés ne sont pas relevées',
+                moGoogleName:'ne relève pas de WME', moGoogleCategory:'ne relève pas de WME', moGooglePosition:'ne relève pas de WME',
+                vaPublic:'Public', vaPrivate:'Privé', vaRestricted:'Restreint',
+                vaFree:'Gratuit', vaLow:'Faible', vaModerate:'Modéré', vaExpensive:'Élevé',
+                vaMultiLevel:'Plusieurs niveaux', vaStreetLevel:'Extérieur', vaStreetLevelCovered:'Extérieur couvert', vaUnderground:'Souterrain',
+                vaCash:'Espèces', vaChecks:'Chèques', vaCredit:'Carte de crédit', vaDebitCard:'Carte bancaire',
+                vaDigitalWallet:'Portefeuille numérique', vaElectronicPass:'Pass électronique', vaMembership:'Abonnement',
+                vaParkingApp:'Application', vaPermit:'Laissez-passer', vaPrepaid:'Prépaiement', vaSmsCall:'SMS/Appel',
+                vaAirConditioning:'Climatisation', vaCreditCards:'Accepte les cartes de crédit', vaCurbsidePickup:'Click & Collect',
+                vaDeliveries:'Livraisons', vaDrivethrough:'Drive', vaOutsideSeating:'Terrasse extérieure',
+                vaParkingForCustomers:'Parking client', vaReservations:'Réservations', vaRestrooms:'Toilettes',
+                vaTakeAway:'À emporter', vaValletService:'Service de voiturier', vaWheelchairAccessible:'Accessible en fauteuil roulant',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Navette aéroport', vaCarpoolParking:'Places covoiturage', vaCarWash:'Lavage auto',
+                vaCovered:'Couvert', vaDisabilityParking:'Places PMR', vaOnSiteAttendant:'Agent d’accueil', vaParkAndRide:'P+R',
+                vaSecurity:'Surveillance', vaValet:'Voiturier', vaEvChargingStation:'Bornes de charge',
             },
             en: {
-                tabTitle:'POI Events', tabTooltip:'Bulk-update POIs via Excel',
+                tabTitle:'WME POI Event Updater',
                 panelTitle:'POI Event Updater', chooseFile:'📂 Choose a file',
                 chooseFileTitle:'Load an .xlsx workbook from your disk',
                 selectSheet:'Which sheet to apply',
@@ -156,81 +226,864 @@
                 btnApplyNone:'Nothing ticked', btnApplyOne:'Apply 1 row',
                 btnApplyN:(n)=>`Apply the ${n} ticked rows`,
                 btnApplyTitle:'Write the ticked rows into the editor. Nothing is saved: you will review in WME.',
-                btnExportTitle:'Save the report of this preview',
+                btnExportTitle:'Save the report of this run',
                 footerHelpVide:'Nothing is written to the map until you click Apply.',
                 guideFichier:'Choose the event workbook.',
                 guideFichierSuite:'Then pick the sheet, and review every row before applying.',
                 guideOnglet:'Choose the sheet to apply.',
-                guideOngletSuite:'One sheet per event. The « Hors Evenement » one puts places back to their ordinary state.',
+                guideOngletSuite:'One sheet per event. The off-event sheet puts places back to their ordinary state.',
                 colSelect:'Apply', colEtat:'State',
                 dropLigne1:'📄 Drop a workbook here',
                 dropLigne2:'or click to pick one',
                 dropTitre:'Drop an .xlsx file anywhere on this window, or click to pick one',
                 dropRefus:(nom)=>`« ${nom} » is not an Excel workbook: only .xlsx and .xls files load here.`,
                 sbOuvrir:'Show the window', sbOuvrirTitre:'Open the work window — that is where you load a workbook and review before applying',
-                sbReglages:'Settings', sbReglagesNote:'Language, display density, map behaviour — to come. The place is reserved.',
+                sbIntro:'Bulk-updates the name, description and fields of places from a workbook: one sheet per event.',
+                sbAide:'Help', historyVide:'No workbook loaded yet.',
+                aideClasseurT:'The workbook',
+                aideClasseur:'One sheet per event, one row per place. Columns are read by their header: permalink, name, description, then the place fields (phone, website, categories, services, parking…).\nAn empty cell in a place field asks for nothing. An empty description ERASES the place’s one: that is how an off-event sheet puts places back to plain.',
+                aideRelireT:'Review and apply',
+                aideRelire:'Each row shows the before (struck through) and the after. What changes is ticked by default; editing a value in the preview decides the box again.\nApply writes into the editor without saving: review on the map, then click Save. Places that failed stay ticked, to retry.',
+                aideEtatsT:'Row states',
+                aideEtats:'Green number: fields to write.\nOrange -n: applying would REMOVE n values — never ticked by default.\nSaE: place locked above your level, the change goes as a suggestion.\nL7: staff lock, nothing is written.\n?: place not found.\n✔: written, waiting to be saved.',
+                sbEcrit:'✍️ Apply writes into the editor; the script never saves.',
+                majDispo:(v)=>`New version ${v} available.`, majInstaller:'Install',
                 cancelTitle:'Stop: what is already loaded is kept',
                 footerHelp:'Untick what you do not want to write. Orange rows REMOVE values: they are never ticked by default.',
+                footerMasquees:(n)=>`${n} ticked row(s) are hidden by the filter — they will be written too.`,
                 bilanPartiel:(n)=>`⚠️ ${n} place(s) only received part of the values — see the report.`,
-                bilanEchec:(n)=>`⚠️ ${n} place(s) could not be loaded: nothing was written there.`,
-                bilanNonEnregistre:(n)=>`${n} pending change(s) in WME — NOTHING IS SAVED: review, then click Save in the editor.`,
+                bilanEchec:(n)=>`⚠️ ${n} place(s) could not be processed — their rows stay ticked:`,
+                bilanSae:(n)=>`⚠️ ${n} place(s) locked above your level: the change goes as a suggestion (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} change(s) added to the WME stack — NOTHING IS SAVED: review, then click Save in the editor.`,
+                bilanNonEnregistreSansCompte:'NOTHING IS SAVED: review, then click Save in the editor.',
+                bilanErreurGenerale:(m)=>`✖ Writing could not start: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'A scan or a write is in progress: wait for it to finish before loading another workbook.',
                 cbTitre:'Write this row into the editor',
                 cbFige:'This row cannot be written — see the state badge',
                 colNameTitle:'The name to write. Editable before applying.',
-                colDescTitle:'The description to write. An empty cell asks for nothing and erases nothing.',
+                colDescTitle:'The description to write. An empty cell ERASES the place description.',
+                descEffacee:'⚠ the place description will be erased',
+                nomEfface:'⚠ the place name would be erased',
                 triTitre:'Sort on this column',
                 badgePerteTitle:(n)=>`Applying would REMOVE ${n} value(s) from the place`,
                 badgeDiffTitle:(n)=>`${n} field(s) to write`,
                 badgeRienTitle:'Nothing to write: the place already carries these values',
                 badgeOffTitle:'Place not found in the editor: nothing can be written',
-                noFile:'No file chosen', showBtn:'▶ Show changes',
-                historyTitle:'Recent files', histLoaded:'📂 Loaded:', histApplied:'✔ Applied:',
-                histNeverApplied:'✔ Never applied', filterPlaceholder:'🔍 Filter by name…',
-                draggable:'✥ draggable',
-                colSearch:'🔍', colName:'Name', colDesc:'Description',
-                btnMinimize:'Minimize / Restore', btnRestore:'Restore',
-                btnApply:'Apply', btnClose:'Close',
-                btnDiffActive:'≠ Diff', btnDiffAll:'≡ All', btnUpToDate:'✅ Up to date',
-                tooltipDiffOn:'Show all POIs', tooltipDiffOff:'Show only modified POIs',
-                footerSae:'⚠️ = Suggest an Edit (lock level above yours).',
-                footerHard:'🔒 = L7 staff lock, cannot be edited.',
-                emptyMsg:'✅ No changes to apply for this event.',
-                emptyShowAll:'Show all POIs',
-                lockSaeTitle:(lock,user)=>`Lock L${lock+1} — your level: L${user+1} → Suggest an Edit`,
+                badgePoseTitle:'Written into the editor — waiting to be saved',
+                badgeSaeTitle:'Place locked above your level: the change will go as a suggestion (SaE)',
                 lockHardTitle:'Level 7 lock (Waze staff) — editing not possible',
-                unloadedLabel:'⚠ not loaded', unloadedTitle:'This POI could not be loaded during preloading',
-                diffTitle:'Value differs from current state',
-                loading:(n,total)=>`Loading POIs… ${n} / ${total}`,
+                noFile:'No file chosen',
+                historyTitle:'Recent files', histLoaded:'📂 Loaded:', histApplied:'✔ Applied:',
+                histNeverApplied:'Never applied', clearHistoryTitle:'Clear history',
+                filterPlaceholder:'🔍 Filter by name…',
+                colName:'Name', colDesc:'Description',
+                btnReduce:'Minimize', btnRestore:'Restore', btnApply:'Apply', btnClose:'Close',
+                btnDiffActive:'≠ Changes', btnDiffAll:'≡ All',
+                tooltipDiffOn:'Show only the places to change', tooltipDiffOff:'Show all places',
+                deplacerAide:'Move the window: drag, or keyboard arrows (Shift: big step). Double-click: default position.',
+                redimAide:'Resize the window: drag, or keyboard arrows (Shift: big step)',
+                loadingPois:(n,total)=>`Loading places… ${n} / ${total}`,
                 applying:(n,total)=>`Applying… ${n} / ${total}`,
-                poisLoaded:(n)=>`✔ ${n} POIs loaded`, noPoisLoaded:'✖ No valid POI loaded',
-                anomalies:(n)=>`⚠️ ${n} anomal${n>1?'ies':'y'} detected`,
-                timeoutReport:(n)=>`⚠️ ${n} POI${n>1?'s':''} not applied (timeout):`,
-                btnRetry:(n)=>`🔄 Retry (${n} POI${n>1?'s':''})`,
-                successMsg:(n)=>`✔ ${n} POI${n>1?'s':''} applied successfully`,
+                cancelBtn:'Cancel',
+                noPoisLoaded:'✖ No valid place loaded',
+                anomalies:(n)=>`⚠️ ${n} issue${n>1?'s':''} in the workbook`,
+                btnRetry:(n)=>`🔄 Retry (${n} place${n>1?'s':''})`,
+                successMsg:(n)=>`✔ ${n} place${n>1?'s':''} written`,
                 btnExport:'📥 Export report',
                 sheetHeaderErr:'Column headers missing or unrecognised — sheet ignored',
                 sheetHeaderFallback:'headers not recognised: columns read by position (A = permalink, B = name, C = description)',
-                plusApplique:'✔ applied:', plusMain:'✋ to set by hand:', plusRefus:'⚠ not recognised:',
+                sheetHeaderConflit:'recognised headers are not in their A/B/C place — sheet ignored: name the three columns (permalink, name, description)',
+                colonneDoublon:(lib, cols)=>`two columns for « ${lib} » (${cols}): only the first one is read`,
+                plusApplique:'✔ to write:', plusMain:'✋ to set by hand:', plusRefus:'⚠ not recognised:',
                 plusConforme:'· already correct:', plusAvant:'replaces:', plusRetire:'REMOVES',
                 urlInvalid:'Invalid URL',
                 urlBadHost:'Unrecognised URL (must be waze.com or beta.waze.com/…/editor)',
                 urlNoEnv:'missing env= parameter', urlBadLat:'lat= missing or invalid',
                 urlBadLon:'lon= missing or invalid', urlBadZoom:'zoomLevel= missing or invalid',
-                urlNoVenues:'venues= missing', urlNoVid:'unable to extract venue ID',
+                urlNoVenues:'venues= missing', urlNoVid:'unable to read the place ID',
+                urlAutreEnv:(env, courant)=>`permalink from another server (env=${env}, the editor is on ${courant}): the place will not be found`,
+                urlPlusieursLieux:'several places in venues=: only the first one is read',
                 nameEmpty:'empty name', dupRow:(a,b)=>`Rows ${a} and ${b}: duplicate permalink`,
-                reportHeaders:['POI (Before Name)','After Name','Before Desc','After Desc','Status'],
-                statusApplied:'✔ Applied', statusTimeout:'✖ Timeout',
-                diffCount:(n)=>`${n} diff`, upToDateTitle:'Up to date', noPoi:'No POI found.',
-                rowLabel:'Row', loadingPois:(n,total)=>`Loading POIs… ${n} / ${total}`,
-                masterCbTitle:'Check / uncheck all', searchClearTitle:'Clear',
-                btnReduce:'Minimize', poiCountDiff:(n)=>`${n} POI (diff)`, poiCount:(n)=>`${n} POIs`,
-                badgeSae:(n)=>`${n} ⚠️ SaE`, badgeSaeTitle:'These POIs will be submitted as Suggest an Edit',
-                badgeHardTitle:'These POIs are level-7 locked — editing not possible',
-                layerOffMsg:'⚠️ The "Places" layer is disabled in WME.\n\nPlease enable it (Layers menu > Places) before running the script.',
-                cancelBtn:'Cancel', preloadCancelled:'Preloading cancelled.', clearHistoryTitle:'Clear history',
-                xlsxMissing:'⚠️ Excel library (XLSX) not loaded. Check your connection or allow cdnjs.cloudflare.com / jsdelivr.net, then reload the page (F5).',
-                locateTitle:'Center the map on this POI',
-            }
+                rowLabel:'row',
+                reportHeaders:['Permalink','Name before','Name after','Description before','Description after','Status','Fields not written','Error'],
+                statusApplied:'✔ Applied', statusPartial:'⚠ Partial', statusTimeout:'✖ Not found', statusErreur:'✖ Error',
+                masterCbTitle:'Tick / untick all',
+                poiCount:(n)=>`${n} place${n>1?'s':''}`,
+                layerOffMsg:'⚠️ The « Places » layer is off and could not be switched on: enable it (Layers > Places), then pick the sheet again.',
+                xlsxMissing:'⚠️ The Excel library (SheetJS) could not load. Check your connection or allow cdn.sheetjs.com, then reload the page (F5).',
+                locateTitle:'Center the map on this place',
+                valOui:'yes', valNon:'no',
+                chPerm:'Permalink', chName:'Name', chDesc:'Description', chAliases:'Alternate names',
+                chPhone:'Phone', chUrl:'Website', chServices:'Services', chCategories:'Categories',
+                chParkingType:'Parking type', chHasTBR:'Type varies', chCostType:'Cost',
+                chPaymentType:'Payment methods', chParkingServices:'Parking services', chLotType:'Lot type',
+                chSpots:'Number of spots', chCanExit:'Exit while closed',
+                chHours:'Opening hours', chAddress:'Address', chEntryPoints:'Entry points', chOperator:'Parking operator',
+                chGoogleName:'Google name', chGoogleCategory:'Google category', chGooglePosition:'Google position',
+                moHours:'WME expects time slots, not a sentence',
+                moAddress:'WME expects a house number and a street from its own model',
+                moEntryPoints:'these are points on the map, not text',
+                moOperator:'closed list in WME, whose keys have not been collected',
+                moGoogleName:'not a WME field', moGoogleCategory:'not a WME field', moGooglePosition:'not a WME field',
+                vaPublic:'Public', vaPrivate:'Private', vaRestricted:'Restricted',
+                vaFree:'Free', vaLow:'Low', vaModerate:'Moderate', vaExpensive:'Expensive',
+                vaMultiLevel:'Multi-level', vaStreetLevel:'Street level', vaStreetLevelCovered:'Street level, covered', vaUnderground:'Underground',
+                vaCash:'Cash', vaChecks:'Checks', vaCredit:'Credit card', vaDebitCard:'Debit card',
+                vaDigitalWallet:'Digital wallet', vaElectronicPass:'Electronic pass', vaMembership:'Membership',
+                vaParkingApp:'Parking app', vaPermit:'Permit', vaPrepaid:'Prepaid', vaSmsCall:'SMS/Call',
+                vaAirConditioning:'Air conditioning', vaCreditCards:'Accepts credit cards', vaCurbsidePickup:'Curbside pickup',
+                vaDeliveries:'Deliveries', vaDrivethrough:'Drive-through', vaOutsideSeating:'Outside seating',
+                vaParkingForCustomers:'Parking for customers', vaReservations:'Reservations', vaRestrooms:'Restrooms',
+                vaTakeAway:'Take away', vaValletService:'Valet service', vaWheelchairAccessible:'Wheelchair accessible',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Airport shuttle', vaCarpoolParking:'Carpool parking', vaCarWash:'Car wash',
+                vaCovered:'Covered', vaDisabilityParking:'Disability parking', vaOnSiteAttendant:'On-site attendant', vaParkAndRide:'Park and ride',
+                vaSecurity:'Security', vaValet:'Valet', vaEvChargingStation:'EV charging station',
+            },
+            de: {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 Datei wählen',
+                chooseFileTitle:'Eine .xlsx-Arbeitsmappe von Ihrem Rechner laden',
+                selectSheet:'Das anzuwendende Tabellenblatt',
+                fabTitle:'POI Event Updater — Fenster anzeigen',
+                fabTitleOn:'POI Event Updater — Fenster ausblenden',
+                btnApplyNone:'Nichts angehakt', btnApplyOne:'1 Zeile anwenden',
+                btnApplyN:(n)=>`Die ${n} angehakten Zeilen anwenden`,
+                btnApplyTitle:'Die angehakten Zeilen in den Editor schreiben. Nichts wird gespeichert: Sie prüfen danach in WME.',
+                btnExportTitle:'Den Bericht dieses Durchlaufs speichern',
+                footerHelpVide:'Auf der Karte wird nichts geschrieben, bevor Sie auf Anwenden klicken.',
+                guideFichier:'Wählen Sie die Arbeitsmappe der Veranstaltung.',
+                guideFichierSuite:'Danach wählen Sie das Tabellenblatt und prüfen jede Zeile vor dem Anwenden.',
+                guideOnglet:'Wählen Sie das anzuwendende Tabellenblatt.',
+                guideOngletSuite:'Ein Blatt pro Veranstaltung. Das Blatt „außerhalb der Veranstaltung“ setzt die Orte in ihren normalen Zustand zurück.',
+                colSelect:'Anwenden', colEtat:'Status',
+                dropLigne1:'📄 Arbeitsmappe hier ablegen',
+                dropLigne2:'oder klicken, um sie zu wählen',
+                dropTitre:'Eine .xlsx-Datei irgendwo auf dieses Fenster ziehen, oder klicken, um sie zu wählen',
+                dropRefus:(nom)=>`„${nom}“ ist keine Excel-Arbeitsmappe: hier lassen sich nur .xlsx- und .xls-Dateien laden.`,
+                sbOuvrir:'Fenster anzeigen', sbOuvrirTitre:'Das Arbeitsfenster öffnen — dort lädt man eine Arbeitsmappe und prüft vor dem Anwenden',
+                sbIntro:'Aktualisiert Name, Beschreibung und Felder von Orten stapelweise aus einer Arbeitsmappe: ein Blatt pro Veranstaltung.',
+                sbAide:'Hilfe', historyVide:'Noch keine Arbeitsmappe geladen.',
+                aideClasseurT:'Die Arbeitsmappe',
+                aideClasseur:'Ein Blatt pro Veranstaltung, eine Zeile pro Ort. Die Spalten werden über ihre Überschrift gelesen: Permalink, Name, Beschreibung, dann die Felder des Ortes (Telefon, Website, Kategorien, Dienste, Parkplatz…).\nEine leere Zelle in einem Feld des Ortes verlangt nichts. Eine leere Beschreibung LÖSCHT die des Ortes: so setzt ein Blatt „außerhalb der Veranstaltung“ die Orte zurück.',
+                aideRelireT:'Prüfen und anwenden',
+                aideRelire:'Jede Zeile zeigt das Vorher (durchgestrichen) und das Nachher. Was sich ändert, ist vorab angehakt; eine Änderung in der Vorschau entscheidet das Häkchen neu.\nAnwenden schreibt in den Editor, ohne zu speichern: auf der Karte prüfen, dann Speichern klicken. Fehlgeschlagene Orte bleiben angehakt, zum erneuten Versuch.',
+                aideEtatsT:'Zeilenstatus',
+                aideEtats:'Grüne Zahl: zu schreibende Felder.\nOrange -n: Anwenden würde n Werte ENTFERNEN — nie vorab angehakt.\nSaE: Ort über Ihrer Stufe gesperrt, die Änderung geht als Vorschlag.\nL7: Staff-Sperre, nichts wird geschrieben.\n?: Ort nicht gefunden.\n✔: geschrieben, wartet auf Speichern.',
+                sbEcrit:'✍️ Anwenden schreibt in den Editor; das Skript speichert nie.',
+                majDispo:(v)=>`Neue Version ${v} verfügbar.`, majInstaller:'Installieren',
+                cancelTitle:'Abbrechen: bereits Geladenes bleibt erhalten',
+                footerHelp:'Haken Sie ab, was Sie nicht schreiben wollen. Orange Zeilen ENTFERNEN Werte: sie sind nie vorab angehakt.',
+                footerMasquees:(n)=>`${n} angehakte Zeile(n) sind durch den Filter ausgeblendet — sie werden trotzdem geschrieben.`,
+                bilanPartiel:(n)=>`⚠️ ${n} Ort(e) haben nur einen Teil der Werte erhalten — siehe Bericht.`,
+                bilanEchec:(n)=>`⚠️ ${n} Ort(e) konnten nicht verarbeitet werden — ihre Zeilen bleiben angehakt:`,
+                bilanSae:(n)=>`⚠️ ${n} Ort(e) über Ihrer Stufe gesperrt: die Änderung geht als Vorschlag (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} Änderung(en) zum WME-Stapel hinzugefügt — NICHTS IST GESPEICHERT: prüfen, dann im Editor auf Speichern klicken.`,
+                bilanNonEnregistreSansCompte:'NICHTS IST GESPEICHERT: prüfen, dann im Editor auf Speichern klicken.',
+                bilanErreurGenerale:(m)=>`✖ Das Schreiben konnte nicht beginnen: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'Ein Durchlauf oder ein Schreibvorgang läuft: warten Sie das Ende ab, bevor Sie eine andere Arbeitsmappe laden.',
+                cbTitre:'Diese Zeile in den Editor schreiben',
+                cbFige:'Diese Zeile kann nicht geschrieben werden — siehe Statusabzeichen',
+                colNameTitle:'Der zu schreibende Name. Vor dem Anwenden änderbar.',
+                colDescTitle:'Die zu schreibende Beschreibung. Eine leere Zelle LÖSCHT die Beschreibung des Ortes.',
+                descEffacee:'⚠ die Beschreibung des Ortes wird gelöscht',
+                nomEfface:'⚠ der Name des Ortes würde gelöscht',
+                triTitre:'Nach dieser Spalte sortieren',
+                badgePerteTitle:(n)=>`Anwenden würde ${n} Wert(e) vom Ort ENTFERNEN`,
+                badgeDiffTitle:(n)=>`${n} Feld(er) zu schreiben`,
+                badgeRienTitle:'Nichts zu schreiben: der Ort trägt diese Werte bereits',
+                badgeOffTitle:'Ort im Editor nicht gefunden: nichts kann geschrieben werden',
+                badgePoseTitle:'In den Editor geschrieben — wartet auf Speichern',
+                badgeSaeTitle:'Ort über Ihrer Stufe gesperrt: die Änderung geht als Vorschlag (SaE)',
+                lockHardTitle:'Sperre Stufe 7 (Waze-Staff) — Bearbeiten nicht möglich',
+                noFile:'Keine Datei gewählt',
+                historyTitle:'Letzte Dateien', histLoaded:'📂 Geladen:', histApplied:'✔ Angewendet:',
+                histNeverApplied:'Nie angewendet', clearHistoryTitle:'Verlauf löschen',
+                filterPlaceholder:'🔍 Nach Namen filtern…',
+                colName:'Name', colDesc:'Beschreibung',
+                btnReduce:'Minimieren', btnRestore:'Wiederherstellen', btnApply:'Anwenden', btnClose:'Schließen',
+                btnDiffActive:'≠ Änderungen', btnDiffAll:'≡ Alle',
+                tooltipDiffOn:'Nur die zu ändernden Orte anzeigen', tooltipDiffOff:'Alle Orte anzeigen',
+                deplacerAide:'Fenster verschieben: ziehen, oder Pfeiltasten (Umschalt: großer Schritt). Doppelklick: Standardposition.',
+                redimAide:'Fenstergröße ändern: ziehen, oder Pfeiltasten (Umschalt: großer Schritt)',
+                loadingPois:(n,total)=>`Orte werden geladen… ${n} / ${total}`,
+                applying:(n,total)=>`Wird angewendet… ${n} / ${total}`,
+                cancelBtn:'Abbrechen',
+                noPoisLoaded:'✖ Kein gültiger Ort geladen',
+                anomalies:(n)=>`⚠️ ${n} Auffälligkeit${n>1?'en':''} in der Arbeitsmappe`,
+                btnRetry:(n)=>`🔄 Erneut versuchen (${n} Ort${n>1?'e':''})`,
+                successMsg:(n)=>`✔ ${n} Ort${n>1?'e':''} geschrieben`,
+                btnExport:'📥 Bericht exportieren',
+                sheetHeaderErr:'Spaltenüberschriften fehlen oder sind unbekannt — Blatt ignoriert',
+                sheetHeaderFallback:'Überschriften unbekannt: Spalten nach Position gelesen (A = Permalink, B = Name, C = Beschreibung)',
+                sheetHeaderConflit:'erkannte Überschriften stehen nicht an ihrer Stelle A/B/C — Blatt ignoriert: benennen Sie die drei Spalten (Permalink, Name, Beschreibung)',
+                colonneDoublon:(lib, cols)=>`zwei Spalten für „${lib}“ (${cols}): nur die erste wird gelesen`,
+                plusApplique:'✔ zu schreiben:', plusMain:'✋ von Hand zu setzen:', plusRefus:'⚠ nicht erkannt:',
+                plusConforme:'· bereits korrekt:', plusAvant:'ersetzt:', plusRetire:'ENTFERNT',
+                urlInvalid:'Ungültige URL',
+                urlBadHost:'Unbekannte URL (muss waze.com oder beta.waze.com/…/editor sein)',
+                urlNoEnv:'Parameter env= fehlt', urlBadLat:'lat= fehlt oder ungültig',
+                urlBadLon:'lon= fehlt oder ungültig', urlBadZoom:'zoomLevel= fehlt oder ungültig',
+                urlNoVenues:'venues= fehlt', urlNoVid:'die Kennung des Ortes ist nicht lesbar',
+                urlAutreEnv:(env, courant)=>`Permalink eines anderen Servers (env=${env}, der Editor ist auf ${courant}): der Ort wird nicht gefunden`,
+                urlPlusieursLieux:'mehrere Orte in venues=: nur der erste wird gelesen',
+                nameEmpty:'leerer Name', dupRow:(a,b)=>`Zeilen ${a} und ${b}: doppelter Permalink`,
+                rowLabel:'Zeile',
+                reportHeaders:['Permalink','Name vorher','Name nachher','Beschreibung vorher','Beschreibung nachher','Status','Nicht geschriebene Felder','Fehler'],
+                statusApplied:'✔ Angewendet', statusPartial:'⚠ Teilweise', statusTimeout:'✖ Nicht gefunden', statusErreur:'✖ Fehler',
+                masterCbTitle:'Alle an- / abhaken',
+                poiCount:(n)=>`${n} Ort${n>1?'e':''}`,
+                layerOffMsg:'⚠️ Die Ebene „Orte“ ist aus und ließ sich nicht einschalten: aktivieren Sie sie (Ebenen > Orte) und wählen Sie das Blatt erneut.',
+                xlsxMissing:'⚠️ Die Excel-Bibliothek (SheetJS) konnte nicht geladen werden. Prüfen Sie die Verbindung oder erlauben Sie cdn.sheetjs.com, dann Seite neu laden (F5).',
+                locateTitle:'Karte auf diesen Ort zentrieren',
+                valOui:'ja', valNon:'nein',
+                chPerm:'Permalink', chName:'Name', chDesc:'Beschreibung', chAliases:'Alternative Namen',
+                chPhone:'Telefon', chUrl:'Website', chServices:'Dienste', chCategories:'Kategorien',
+                chParkingType:'Parkplatztyp', chHasTBR:'Typ variiert', chCostType:'Kosten',
+                chPaymentType:'Zahlungsarten', chParkingServices:'Parkplatzdienste', chLotType:'Lage',
+                chSpots:'Anzahl der Stellplätze', chCanExit:'Ausfahrt bei Schließung',
+                chHours:'Öffnungszeiten', chAddress:'Adresse', chEntryPoints:'Zufahrtspunkte', chOperator:'Parkplatzbetreiber',
+                chGoogleName:'Google-Name', chGoogleCategory:'Google-Kategorie', chGooglePosition:'Google-Position',
+                moHours:'WME erwartet Zeitfenster, keinen Satz',
+                moAddress:'WME erwartet Hausnummer und Straße aus seinem eigenen Modell',
+                moEntryPoints:'das sind Punkte auf der Karte, kein Text',
+                moOperator:'geschlossene Liste in WME, deren Schlüssel nicht erfasst sind',
+                moGoogleName:'kein WME-Feld', moGoogleCategory:'kein WME-Feld', moGooglePosition:'kein WME-Feld',
+                vaPublic:'Öffentlich', vaPrivate:'Privat', vaRestricted:'Eingeschränkt',
+                vaFree:'Kostenlos', vaLow:'Günstig', vaModerate:'Mittel', vaExpensive:'Teuer',
+                vaMultiLevel:'Mehrgeschossig', vaStreetLevel:'Ebenerdig', vaStreetLevelCovered:'Ebenerdig, überdacht', vaUnderground:'Tiefgarage',
+                vaCash:'Bargeld', vaChecks:'Schecks', vaCredit:'Kreditkarte', vaDebitCard:'Debitkarte',
+                vaDigitalWallet:'Digitale Geldbörse', vaElectronicPass:'Elektronischer Pass', vaMembership:'Mitgliedschaft',
+                vaParkingApp:'Park-App', vaPermit:'Genehmigung', vaPrepaid:'Vorauszahlung', vaSmsCall:'SMS/Anruf',
+                vaAirConditioning:'Klimaanlage', vaCreditCards:'Kreditkarten akzeptiert', vaCurbsidePickup:'Abholung am Straßenrand',
+                vaDeliveries:'Lieferungen', vaDrivethrough:'Drive-in', vaOutsideSeating:'Außenbereich',
+                vaParkingForCustomers:'Kundenparkplatz', vaReservations:'Reservierungen', vaRestrooms:'Toiletten',
+                vaTakeAway:'Zum Mitnehmen', vaValletService:'Parkservice', vaWheelchairAccessible:'Rollstuhlgerecht',
+                vaWiFi:'WLAN', vaAirportShuttle:'Flughafen-Shuttle', vaCarpoolParking:'Fahrgemeinschaftsparkplätze', vaCarWash:'Autowäsche',
+                vaCovered:'Überdacht', vaDisabilityParking:'Behindertenparkplätze', vaOnSiteAttendant:'Personal vor Ort', vaParkAndRide:'Park & Ride',
+                vaSecurity:'Überwachung', vaValet:'Parkservice (Valet)', vaEvChargingStation:'Ladestation',
+            },
+            es: {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 Elegir un archivo',
+                chooseFileTitle:'Cargar un libro .xlsx desde su disco',
+                selectSheet:'La hoja del libro que se aplicará',
+                fabTitle:'POI Event Updater — mostrar la ventana',
+                fabTitleOn:'POI Event Updater — ocultar la ventana',
+                btnApplyNone:'Nada marcado', btnApplyOne:'Aplicar 1 fila',
+                btnApplyN:(n)=>`Aplicar las ${n} filas marcadas`,
+                btnApplyTitle:'Escribir las filas marcadas en el editor. No se guarda nada: revisará en WME.',
+                btnExportTitle:'Guardar el informe de esta aplicación',
+                footerHelpVide:'No se escribe nada en el mapa hasta que haga clic en Aplicar.',
+                guideFichier:'Elija el libro del evento.',
+                guideFichierSuite:'Después elegirá la hoja y revisará cada fila antes de aplicar.',
+                guideOnglet:'Elija la hoja que se aplicará.',
+                guideOngletSuite:'Una hoja por evento. La hoja «fuera de evento» devuelve los lugares a su estado habitual.',
+                colSelect:'Aplicar', colEtat:'Estado',
+                dropLigne1:'📄 Suelte un libro aquí',
+                dropLigne2:'o haga clic para elegirlo',
+                dropTitre:'Suelte un archivo .xlsx en cualquier parte de esta ventana, o haga clic para elegirlo',
+                dropRefus:(nom)=>`«${nom}» no es un libro de Excel: aquí solo se cargan archivos .xlsx y .xls.`,
+                sbOuvrir:'Mostrar la ventana', sbOuvrirTitre:'Abrir la ventana de trabajo — allí se carga un libro y se revisa antes de aplicar',
+                sbIntro:'Actualiza por lotes el nombre, la descripción y los campos de los lugares desde un libro: una hoja por evento.',
+                sbAide:'Ayuda', historyVide:'Todavía no se ha cargado ningún libro.',
+                aideClasseurT:'El libro',
+                aideClasseur:'Una hoja por evento, una fila por lugar. Las columnas se leen por su encabezado: enlace permanente, nombre, descripción y luego los campos del lugar (teléfono, sitio web, categorías, servicios, aparcamiento…).\nUna celda vacía en un campo del lugar no pide nada. Una descripción vacía BORRA la del lugar: así una hoja «fuera de evento» deja los lugares como estaban.',
+                aideRelireT:'Revisar y aplicar',
+                aideRelire:'Cada fila muestra el antes (tachado) y el después. Lo que cambia se marca de oficio; retocar un valor en la vista previa vuelve a decidir la casilla.\nAplicar escribe en el editor sin guardar: revise en el mapa y luego haga clic en Guardar. Los lugares con error siguen marcados, para reintentar.',
+                aideEtatsT:'Estados de una fila',
+                aideEtats:'Número verde: campos que se escribirán.\n-n naranja: aplicar QUITARÍA n valores — nunca se marca de oficio.\nSaE: lugar bloqueado por encima de su nivel, el cambio va como sugerencia.\nL7: bloqueo del staff, no se escribe nada.\n?: lugar no encontrado.\n✔: escrito, pendiente de guardar.',
+                sbEcrit:'✍️ Aplicar escribe en el editor; el script nunca guarda.',
+                majDispo:(v)=>`Nueva versión ${v} disponible.`, majInstaller:'Instalar',
+                cancelTitle:'Interrumpir: lo ya cargado se conserva',
+                footerHelp:'Desmarque lo que no quiera escribir. Las filas naranjas QUITAN valores: nunca se marcan de oficio.',
+                footerMasquees:(n)=>`${n} fila(s) marcada(s) están ocultas por el filtro — también se escribirán.`,
+                bilanPartiel:(n)=>`⚠️ ${n} lugar(es) solo recibieron parte de los valores — vea el informe.`,
+                bilanEchec:(n)=>`⚠️ ${n} lugar(es) no se pudieron procesar — sus filas siguen marcadas:`,
+                bilanSae:(n)=>`⚠️ ${n} lugar(es) bloqueado(s) por encima de su nivel: el cambio va como sugerencia (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} cambio(s) añadido(s) a la pila de WME — NO SE HA GUARDADO NADA: revise y luego haga clic en Guardar en el editor.`,
+                bilanNonEnregistreSansCompte:'NO SE HA GUARDADO NADA: revise y luego haga clic en Guardar en el editor.',
+                bilanErreurGenerale:(m)=>`✖ La escritura no pudo empezar: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'Hay una carga o una escritura en curso: espere a que termine antes de cargar otro libro.',
+                cbTitre:'Escribir esta fila en el editor',
+                cbFige:'Esta fila no se puede escribir — vea la insignia de estado',
+                colNameTitle:'El nombre que se escribirá. Modificable antes de aplicar.',
+                colDescTitle:'La descripción que se escribirá. Una celda vacía BORRA la descripción del lugar.',
+                descEffacee:'⚠ se borrará la descripción del lugar',
+                nomEfface:'⚠ se borraría el nombre del lugar',
+                triTitre:'Ordenar por esta columna',
+                badgePerteTitle:(n)=>`Aplicar QUITARÍA ${n} valor(es) al lugar`,
+                badgeDiffTitle:(n)=>`${n} campo(s) que se escribirán`,
+                badgeRienTitle:'Nada que escribir: el lugar ya tiene estos valores',
+                badgeOffTitle:'Lugar no encontrado en el editor: no se puede escribir nada',
+                badgePoseTitle:'Escrito en el editor — pendiente de guardar',
+                badgeSaeTitle:'Lugar bloqueado por encima de su nivel: el cambio irá como sugerencia (SaE)',
+                lockHardTitle:'Bloqueo de nivel 7 (staff de Waze) — no se puede editar',
+                noFile:'Ningún archivo elegido',
+                historyTitle:'Archivos recientes', histLoaded:'📂 Cargado:', histApplied:'✔ Aplicado:',
+                histNeverApplied:'Nunca aplicado', clearHistoryTitle:'Borrar el historial',
+                filterPlaceholder:'🔍 Filtrar por nombre…',
+                colName:'Nombre', colDesc:'Descripción',
+                btnReduce:'Minimizar', btnRestore:'Restaurar', btnApply:'Aplicar', btnClose:'Cerrar',
+                btnDiffActive:'≠ Cambios', btnDiffAll:'≡ Todo',
+                tooltipDiffOn:'Mostrar solo los lugares que cambian', tooltipDiffOff:'Mostrar todos los lugares',
+                deplacerAide:'Mover la ventana: arrastrar, o flechas del teclado (Mayús: paso grande). Doble clic: posición por defecto.',
+                redimAide:'Cambiar el tamaño de la ventana: arrastrar, o flechas del teclado (Mayús: paso grande)',
+                loadingPois:(n,total)=>`Cargando lugares… ${n} / ${total}`,
+                applying:(n,total)=>`Aplicando… ${n} / ${total}`,
+                cancelBtn:'Cancelar',
+                noPoisLoaded:'✖ No se cargó ningún lugar válido',
+                anomalies:(n)=>`⚠️ ${n} anomalía${n>1?'s':''} en el libro`,
+                btnRetry:(n)=>`🔄 Reintentar (${n} lugar${n>1?'es':''})`,
+                successMsg:(n)=>`✔ ${n} lugar${n>1?'es':''} escrito${n>1?'s':''}`,
+                btnExport:'📥 Exportar el informe',
+                sheetHeaderErr:'Encabezados de columna ausentes o no reconocidos — hoja ignorada',
+                sheetHeaderFallback:'encabezados no reconocidos: columnas leídas por posición (A = enlace, B = nombre, C = descripción)',
+                sheetHeaderConflit:'hay encabezados reconocidos fuera de su lugar A/B/C — hoja ignorada: nombre las tres columnas (enlace, nombre, descripción)',
+                colonneDoublon:(lib, cols)=>`dos columnas para «${lib}» (${cols}): solo se lee la primera`,
+                plusApplique:'✔ a escribir:', plusMain:'✋ a poner a mano:', plusRefus:'⚠ no reconocido:',
+                plusConforme:'· ya correcto:', plusAvant:'sustituye:', plusRetire:'QUITA',
+                urlInvalid:'URL no válida',
+                urlBadHost:'URL no reconocida (debe ser waze.com o beta.waze.com/…/editor)',
+                urlNoEnv:'falta el parámetro env=', urlBadLat:'lat= ausente o no válido',
+                urlBadLon:'lon= ausente o no válido', urlBadZoom:'zoomLevel= ausente o no válido',
+                urlNoVenues:'falta venues=', urlNoVid:'no se puede leer el identificador del lugar',
+                urlAutreEnv:(env, courant)=>`enlace de otro servidor (env=${env}, el editor está en ${courant}): no se encontrará el lugar`,
+                urlPlusieursLieux:'varios lugares en venues=: solo se lee el primero',
+                nameEmpty:'nombre vacío', dupRow:(a,b)=>`Filas ${a} y ${b}: enlace duplicado`,
+                rowLabel:'fila',
+                reportHeaders:['Enlace permanente','Nombre antes','Nombre después','Descripción antes','Descripción después','Estado','Campos no escritos','Error'],
+                statusApplied:'✔ Aplicado', statusPartial:'⚠ Parcial', statusTimeout:'✖ No encontrado', statusErreur:'✖ Error',
+                masterCbTitle:'Marcar / desmarcar todo',
+                poiCount:(n)=>`${n} lugar${n>1?'es':''}`,
+                layerOffMsg:'⚠️ La capa «Lugares» está apagada y no se pudo encender: actívela (Capas > Lugares) y vuelva a elegir la hoja.',
+                xlsxMissing:'⚠️ No se pudo cargar la biblioteca de Excel (SheetJS). Compruebe la conexión o permita cdn.sheetjs.com, y recargue la página (F5).',
+                locateTitle:'Centrar el mapa en este lugar',
+                valOui:'sí', valNon:'no',
+                chPerm:'Enlace permanente', chName:'Nombre', chDesc:'Descripción', chAliases:'Nombres alternativos',
+                chPhone:'Teléfono', chUrl:'Sitio web', chServices:'Servicios', chCategories:'Categorías',
+                chParkingType:'Tipo de aparcamiento', chHasTBR:'Tipo variable', chCostType:'Tarifa',
+                chPaymentType:'Formas de pago', chParkingServices:'Servicios del aparcamiento', chLotType:'Ubicación',
+                chSpots:'Número de plazas', chCanExit:'Salida estando cerrado',
+                chHours:'Horario', chAddress:'Dirección', chEntryPoints:'Puntos de entrada', chOperator:'Operador del aparcamiento',
+                chGoogleName:'Nombre en Google', chGoogleCategory:'Categoría en Google', chGooglePosition:'Posición en Google',
+                moHours:'WME espera franjas horarias, no una frase',
+                moAddress:'WME espera un número y una calle de su propio modelo',
+                moEntryPoints:'son puntos en el mapa, no texto',
+                moOperator:'lista cerrada en WME, cuyas claves no se han recopilado',
+                moGoogleName:'no es un campo de WME', moGoogleCategory:'no es un campo de WME', moGooglePosition:'no es un campo de WME',
+                vaPublic:'Público', vaPrivate:'Privado', vaRestricted:'Restringido',
+                vaFree:'Gratuito', vaLow:'Bajo', vaModerate:'Moderado', vaExpensive:'Caro',
+                vaMultiLevel:'Varias plantas', vaStreetLevel:'Exterior', vaStreetLevelCovered:'Exterior cubierto', vaUnderground:'Subterráneo',
+                vaCash:'Efectivo', vaChecks:'Cheques', vaCredit:'Tarjeta de crédito', vaDebitCard:'Tarjeta de débito',
+                vaDigitalWallet:'Monedero digital', vaElectronicPass:'Pase electrónico', vaMembership:'Abono',
+                vaParkingApp:'Aplicación', vaPermit:'Permiso', vaPrepaid:'Prepago', vaSmsCall:'SMS/Llamada',
+                vaAirConditioning:'Aire acondicionado', vaCreditCards:'Acepta tarjetas de crédito', vaCurbsidePickup:'Recogida en la acera',
+                vaDeliveries:'Entregas a domicilio', vaDrivethrough:'Autoservicio en coche', vaOutsideSeating:'Terraza',
+                vaParkingForCustomers:'Aparcamiento para clientes', vaReservations:'Reservas', vaRestrooms:'Aseos',
+                vaTakeAway:'Para llevar', vaValletService:'Aparcacoches', vaWheelchairAccessible:'Accesible en silla de ruedas',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Lanzadera al aeropuerto', vaCarpoolParking:'Plazas para coche compartido', vaCarWash:'Lavado de coches',
+                vaCovered:'Cubierto', vaDisabilityParking:'Plazas para movilidad reducida', vaOnSiteAttendant:'Personal in situ', vaParkAndRide:'Aparcamiento disuasorio',
+                vaSecurity:'Vigilancia', vaValet:'Aparcacoches (valet)', vaEvChargingStation:'Puntos de recarga',
+            },
+            it: {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 Scegli un file',
+                chooseFileTitle:'Carica una cartella di lavoro .xlsx dal tuo disco',
+                selectSheet:'Il foglio da applicare',
+                fabTitle:'POI Event Updater — mostra la finestra',
+                fabTitleOn:'POI Event Updater — nascondi la finestra',
+                btnApplyNone:'Nulla di selezionato', btnApplyOne:'Applica 1 riga',
+                btnApplyN:(n)=>`Applica le ${n} righe selezionate`,
+                btnApplyTitle:'Scrive le righe selezionate nell’editor. Nulla viene salvato: rileggerai in WME.',
+                btnExportTitle:'Salva il resoconto di questa applicazione',
+                footerHelpVide:'Nulla viene scritto sulla mappa finché non fai clic su Applica.',
+                guideFichier:'Scegli la cartella di lavoro dell’evento.',
+                guideFichierSuite:'Poi sceglierai il foglio e rileggerai ogni riga prima di applicare.',
+                guideOnglet:'Scegli il foglio da applicare.',
+                guideOngletSuite:'Un foglio per evento. Il foglio «fuori evento» riporta i luoghi al loro stato ordinario.',
+                colSelect:'Applica', colEtat:'Stato',
+                dropLigne1:'📄 Trascina qui una cartella di lavoro',
+                dropLigne2:'oppure fai clic per sceglierla',
+                dropTitre:'Trascina un file .xlsx in qualunque punto di questa finestra, oppure fai clic per sceglierlo',
+                dropRefus:(nom)=>`«${nom}» non è una cartella di lavoro Excel: qui si caricano solo file .xlsx e .xls.`,
+                sbOuvrir:'Mostra la finestra', sbOuvrirTitre:'Apri la finestra di lavoro — lì si carica una cartella e si rilegge prima di applicare',
+                sbIntro:'Aggiorna in blocco nome, descrizione e campi dei luoghi da una cartella di lavoro: un foglio per evento.',
+                sbAide:'Aiuto', historyVide:'Nessuna cartella di lavoro caricata finora.',
+                aideClasseurT:'La cartella di lavoro',
+                aideClasseur:'Un foglio per evento, una riga per luogo. Le colonne si leggono dalla loro intestazione: permalink, nome, descrizione, poi i campi del luogo (telefono, sito, categorie, servizi, parcheggio…).\nUna cella vuota in un campo del luogo non chiede nulla. Una descrizione vuota CANCELLA quella del luogo: è così che un foglio «fuori evento» riporta i luoghi allo stato base.',
+                aideRelireT:'Rileggere e applicare',
+                aideRelire:'Ogni riga mostra il prima (barrato) e il dopo. Ciò che cambia è selezionato d’ufficio; ritoccare un valore nell’anteprima ridecide la casella.\nApplica scrive nell’editor senza salvare: rileggi sulla mappa, poi fai clic su Salva. I luoghi in errore restano selezionati, per riprovare.',
+                aideEtatsT:'Gli stati di una riga',
+                aideEtats:'Numero verde: campi da scrivere.\n-n arancione: applicare RIMUOVEREBBE n valori — mai selezionata d’ufficio.\nSaE: luogo bloccato sopra il tuo livello, la modifica va come suggerimento.\nL7: blocco dello staff, non si scrive nulla.\n?: luogo non trovato.\n✔: scritto, in attesa di salvataggio.',
+                sbEcrit:'✍️ Applica scrive nell’editor; lo script non salva mai.',
+                majDispo:(v)=>`Nuova versione ${v} disponibile.`, majInstaller:'Installa',
+                cancelTitle:'Interrompi: ciò che è già caricato resta',
+                footerHelp:'Deseleziona ciò che non vuoi scrivere. Le righe arancioni RIMUOVONO valori: non sono mai selezionate d’ufficio.',
+                footerMasquees:(n)=>`Righe selezionate nascoste dal filtro: ${n} — verranno scritte anch’esse.`,
+                bilanPartiel:(n)=>`⚠️ Luoghi che hanno ricevuto solo una parte dei valori: ${n} — vedi il resoconto.`,
+                bilanEchec:(n)=>`⚠️ Luoghi non elaborati: ${n} — le loro righe restano selezionate:`,
+                bilanSae:(n)=>`⚠️ Luoghi bloccati sopra il tuo livello: ${n} — la modifica va come suggerimento (SaE).`,
+                bilanNonEnregistre:(n)=>`Modifiche aggiunte alla pila di WME: ${n} — NULLA È SALVATO: rileggi, poi fai clic su Salva nell’editor.`,
+                bilanNonEnregistreSansCompte:'NULLA È SALVATO: rileggi, poi fai clic su Salva nell’editor.',
+                bilanErreurGenerale:(m)=>`✖ La scrittura non è potuta partire: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'È in corso un caricamento o una scrittura: attendi la fine prima di caricare un’altra cartella.',
+                cbTitre:'Scrivi questa riga nell’editor',
+                cbFige:'Questa riga non può essere scritta — vedi il badge di stato',
+                colNameTitle:'Il nome da scrivere. Modificabile prima di applicare.',
+                colDescTitle:'La descrizione da scrivere. Una cella vuota CANCELLA la descrizione del luogo.',
+                descEffacee:'⚠ la descrizione del luogo sarà cancellata',
+                nomEfface:'⚠ il nome del luogo verrebbe cancellato',
+                triTitre:'Ordina per questa colonna',
+                badgePerteTitle:(n)=>`Applicare RIMUOVEREBBE valori dal luogo: ${n}`,
+                badgeDiffTitle:(n)=>`Campi da scrivere: ${n}`,
+                badgeRienTitle:'Nulla da scrivere: il luogo ha già questi valori',
+                badgeOffTitle:'Luogo non trovato nell’editor: non si può scrivere nulla',
+                badgePoseTitle:'Scritto nell’editor — in attesa di salvataggio',
+                badgeSaeTitle:'Luogo bloccato sopra il tuo livello: la modifica andrà come suggerimento (SaE)',
+                lockHardTitle:'Blocco livello 7 (staff Waze) — modifica impossibile',
+                noFile:'Nessun file scelto',
+                historyTitle:'File recenti', histLoaded:'📂 Caricato:', histApplied:'✔ Applicato:',
+                histNeverApplied:'Mai applicato', clearHistoryTitle:'Cancella la cronologia',
+                filterPlaceholder:'🔍 Filtra per nome…',
+                colName:'Nome', colDesc:'Descrizione',
+                btnReduce:'Riduci', btnRestore:'Ripristina', btnApply:'Applica', btnClose:'Chiudi',
+                btnDiffActive:'≠ Modifiche', btnDiffAll:'≡ Tutto',
+                tooltipDiffOn:'Mostra solo i luoghi da modificare', tooltipDiffOff:'Mostra tutti i luoghi',
+                deplacerAide:'Sposta la finestra: trascina, oppure frecce della tastiera (Maiusc: passo grande). Doppio clic: posizione predefinita.',
+                redimAide:'Ridimensiona la finestra: trascina, oppure frecce della tastiera (Maiusc: passo grande)',
+                loadingPois:(n,total)=>`Caricamento dei luoghi… ${n} / ${total}`,
+                applying:(n,total)=>`Applicazione… ${n} / ${total}`,
+                cancelBtn:'Annulla',
+                noPoisLoaded:'✖ Nessun luogo valido caricato',
+                anomalies:(n)=>`⚠️ ${n} anomali${n>1?'e':'a'} nella cartella di lavoro`,
+                btnRetry:(n)=>`🔄 Riprova (${n} luog${n>1?'hi':'o'})`,
+                successMsg:(n)=>`✔ ${n} luog${n>1?'hi scritti':'o scritto'}`,
+                btnExport:'📥 Esporta il resoconto',
+                sheetHeaderErr:'Intestazioni di colonna assenti o non riconosciute — foglio ignorato',
+                sheetHeaderFallback:'intestazioni non riconosciute: colonne lette per posizione (A = permalink, B = nome, C = descrizione)',
+                sheetHeaderConflit:'intestazioni riconosciute fuori dal loro posto A/B/C — foglio ignorato: dai un nome alle tre colonne (permalink, nome, descrizione)',
+                colonneDoublon:(lib, cols)=>`due colonne per «${lib}» (${cols}): si legge solo la prima`,
+                plusApplique:'✔ da scrivere:', plusMain:'✋ da impostare a mano:', plusRefus:'⚠ non riconosciuto:',
+                plusConforme:'· già corretto:', plusAvant:'sostituisce:', plusRetire:'RIMUOVE',
+                urlInvalid:'URL non valido',
+                urlBadHost:'URL non riconosciuto (deve essere waze.com o beta.waze.com/…/editor)',
+                urlNoEnv:'parametro env= mancante', urlBadLat:'lat= assente o non valido',
+                urlBadLon:'lon= assente o non valido', urlBadZoom:'zoomLevel= assente o non valido',
+                urlNoVenues:'venues= assente', urlNoVid:'impossibile leggere l’identificativo del luogo',
+                urlAutreEnv:(env, courant)=>`permalink di un altro server (env=${env}, l’editor è su ${courant}): il luogo non sarà trovato`,
+                urlPlusieursLieux:'più luoghi in venues=: si legge solo il primo',
+                nameEmpty:'nome vuoto', dupRow:(a,b)=>`Righe ${a} e ${b}: permalink duplicato`,
+                rowLabel:'riga',
+                reportHeaders:['Permalink','Nome prima','Nome dopo','Descrizione prima','Descrizione dopo','Stato','Campi non scritti','Errore'],
+                statusApplied:'✔ Applicato', statusPartial:'⚠ Parziale', statusTimeout:'✖ Non trovato', statusErreur:'✖ Errore',
+                masterCbTitle:'Seleziona / deseleziona tutto',
+                poiCount:(n)=>`${n} luog${n>1?'hi':'o'}`,
+                layerOffMsg:'⚠️ Il livello «Luoghi» è spento e non è stato possibile accenderlo: attivalo (Livelli > Luoghi), poi scegli di nuovo il foglio.',
+                xlsxMissing:'⚠️ Impossibile caricare la libreria Excel (SheetJS). Controlla la connessione o consenti cdn.sheetjs.com, poi ricarica la pagina (F5).',
+                locateTitle:'Centra la mappa su questo luogo',
+                valOui:'sì', valNon:'no',
+                chPerm:'Permalink', chName:'Nome', chDesc:'Descrizione', chAliases:'Nomi alternativi',
+                chPhone:'Telefono', chUrl:'Sito web', chServices:'Servizi', chCategories:'Categorie',
+                chParkingType:'Tipo di parcheggio', chHasTBR:'Tipo variabile', chCostType:'Tariffa',
+                chPaymentType:'Metodi di pagamento', chParkingServices:'Servizi del parcheggio', chLotType:'Collocazione',
+                chSpots:'Numero di posti', chCanExit:'Uscita a parcheggio chiuso',
+                chHours:'Orari', chAddress:'Indirizzo', chEntryPoints:'Punti di accesso', chOperator:'Gestore del parcheggio',
+                chGoogleName:'Nome Google', chGoogleCategory:'Categoria Google', chGooglePosition:'Posizione Google',
+                moHours:'WME si aspetta fasce orarie, non una frase',
+                moAddress:'WME si aspetta un numero civico e una via del proprio modello',
+                moEntryPoints:'sono punti sulla mappa, non testo',
+                moOperator:'elenco chiuso in WME, le cui chiavi non sono state rilevate',
+                moGoogleName:'non è un campo di WME', moGoogleCategory:'non è un campo di WME', moGooglePosition:'non è un campo di WME',
+                vaPublic:'Pubblico', vaPrivate:'Privato', vaRestricted:'Riservato',
+                vaFree:'Gratuito', vaLow:'Basso', vaModerate:'Moderato', vaExpensive:'Caro',
+                vaMultiLevel:'Multipiano', vaStreetLevel:'A raso', vaStreetLevelCovered:'A raso, coperto', vaUnderground:'Sotterraneo',
+                vaCash:'Contanti', vaChecks:'Assegni', vaCredit:'Carta di credito', vaDebitCard:'Carta di debito',
+                vaDigitalWallet:'Portafoglio digitale', vaElectronicPass:'Pass elettronico', vaMembership:'Abbonamento',
+                vaParkingApp:'App di parcheggio', vaPermit:'Permesso', vaPrepaid:'Prepagato', vaSmsCall:'SMS/Chiamata',
+                vaAirConditioning:'Aria condizionata', vaCreditCards:'Accetta carte di credito', vaCurbsidePickup:'Ritiro al marciapiede',
+                vaDeliveries:'Consegne', vaDrivethrough:'Drive-through', vaOutsideSeating:'Posti all’aperto',
+                vaParkingForCustomers:'Parcheggio clienti', vaReservations:'Prenotazioni', vaRestrooms:'Servizi igienici',
+                vaTakeAway:'Da asporto', vaValletService:'Servizio parcheggiatore', vaWheelchairAccessible:'Accessibile in sedia a rotelle',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Navetta aeroporto', vaCarpoolParking:'Posti car pooling', vaCarWash:'Autolavaggio',
+                vaCovered:'Coperto', vaDisabilityParking:'Posti per disabili', vaOnSiteAttendant:'Personale sul posto', vaParkAndRide:'Parcheggio di scambio',
+                vaSecurity:'Sorveglianza', vaValet:'Parcheggiatore (valet)', vaEvChargingStation:'Colonnine di ricarica',
+            },
+            'pt-BR': {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 Escolher um arquivo',
+                chooseFileTitle:'Carregar uma planilha .xlsx do seu computador',
+                selectSheet:'A aba da planilha a aplicar',
+                fabTitle:'POI Event Updater — mostrar a janela',
+                fabTitleOn:'POI Event Updater — ocultar a janela',
+                btnApplyNone:'Nada marcado', btnApplyOne:'Aplicar 1 linha',
+                btnApplyN:(n)=>`Aplicar as ${n} linhas marcadas`,
+                btnApplyTitle:'Gravar as linhas marcadas no editor. Nada é salvo: você revisará no WME.',
+                btnExportTitle:'Salvar o relatório desta aplicação',
+                footerHelpVide:'Nada é gravado no mapa até você clicar em Aplicar.',
+                guideFichier:'Escolha a planilha do evento.',
+                guideFichierSuite:'Depois você escolherá a aba e revisará cada linha antes de aplicar.',
+                guideOnglet:'Escolha a aba a aplicar.',
+                guideOngletSuite:'Uma aba por evento. A aba «fora do evento» devolve os locais ao estado normal.',
+                colSelect:'Aplicar', colEtat:'Estado',
+                dropLigne1:'📄 Solte uma planilha aqui',
+                dropLigne2:'ou clique para escolher',
+                dropTitre:'Solte um arquivo .xlsx em qualquer lugar desta janela, ou clique para escolher',
+                dropRefus:(nom)=>`«${nom}» não é uma planilha do Excel: aqui só se carregam arquivos .xlsx e .xls.`,
+                sbOuvrir:'Mostrar a janela', sbOuvrirTitre:'Abrir a janela de trabalho — é lá que se carrega uma planilha e se revisa antes de aplicar',
+                sbIntro:'Atualiza em lote o nome, a descrição e os campos dos locais a partir de uma planilha: uma aba por evento.',
+                sbAide:'Ajuda', historyVide:'Nenhuma planilha carregada ainda.',
+                aideClasseurT:'A planilha',
+                aideClasseur:'Uma aba por evento, uma linha por local. As colunas são lidas pelo cabeçalho: link permanente, nome, descrição e depois os campos do local (telefone, site, categorias, serviços, estacionamento…).\nUma célula vazia num campo do local não pede nada. Uma descrição vazia APAGA a do local: é assim que uma aba «fora do evento» deixa os locais como eram.',
+                aideRelireT:'Revisar e aplicar',
+                aideRelire:'Cada linha mostra o antes (riscado) e o depois. O que muda vem marcado; editar um valor na prévia decide a caixa de novo.\nAplicar grava no editor sem salvar: revise no mapa e depois clique em Salvar. Os locais com falha continuam marcados, para tentar de novo.',
+                aideEtatsT:'Estados de uma linha',
+                aideEtats:'Número verde: campos a gravar.\n-n laranja: aplicar REMOVERIA n valores — nunca vem marcada.\nSaE: local bloqueado acima do seu nível, a alteração vai como sugestão.\nL7: bloqueio da equipe, nada é gravado.\n?: local não encontrado.\n✔: gravado, aguardando ser salvo.',
+                sbEcrit:'✍️ Aplicar grava no editor; o script nunca salva.',
+                majDispo:(v)=>`Nova versão ${v} disponível.`, majInstaller:'Instalar',
+                cancelTitle:'Interromper: o que já foi carregado é mantido',
+                footerHelp:'Desmarque o que não quiser gravar. As linhas laranja REMOVEM valores: nunca vêm marcadas.',
+                footerMasquees:(n)=>`${n} linha(s) marcada(s) estão ocultas pelo filtro — também serão gravadas.`,
+                bilanPartiel:(n)=>`⚠️ ${n} local(is) receberam só parte dos valores — veja o relatório.`,
+                bilanEchec:(n)=>`⚠️ ${n} local(is) não puderam ser processados — suas linhas continuam marcadas:`,
+                bilanSae:(n)=>`⚠️ ${n} local(is) bloqueado(s) acima do seu nível: a alteração vai como sugestão (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} alteração(ões) adicionada(s) à pilha do WME — NADA FOI SALVO: revise e depois clique em Salvar no editor.`,
+                bilanNonEnregistreSansCompte:'NADA FOI SALVO: revise e depois clique em Salvar no editor.',
+                bilanErreurGenerale:(m)=>`✖ A gravação não pôde começar: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'Um carregamento ou uma gravação está em andamento: espere terminar antes de carregar outra planilha.',
+                cbTitre:'Gravar esta linha no editor',
+                cbFige:'Esta linha não pode ser gravada — veja o selo de estado',
+                colNameTitle:'O nome a gravar. Editável antes de aplicar.',
+                colDescTitle:'A descrição a gravar. Uma célula vazia APAGA a descrição do local.',
+                descEffacee:'⚠ a descrição do local será apagada',
+                nomEfface:'⚠ o nome do local seria apagado',
+                triTitre:'Ordenar por esta coluna',
+                badgePerteTitle:(n)=>`Aplicar REMOVERIA ${n} valor(es) do local`,
+                badgeDiffTitle:(n)=>`${n} campo(s) a gravar`,
+                badgeRienTitle:'Nada a gravar: o local já tem estes valores',
+                badgeOffTitle:'Local não encontrado no editor: nada pode ser gravado',
+                badgePoseTitle:'Gravado no editor — aguardando ser salvo',
+                badgeSaeTitle:'Local bloqueado acima do seu nível: a alteração irá como sugestão (SaE)',
+                lockHardTitle:'Bloqueio nível 7 (equipe Waze) — edição impossível',
+                noFile:'Nenhum arquivo escolhido',
+                historyTitle:'Arquivos recentes', histLoaded:'📂 Carregado:', histApplied:'✔ Aplicado:',
+                histNeverApplied:'Nunca aplicado', clearHistoryTitle:'Limpar o histórico',
+                filterPlaceholder:'🔍 Filtrar por nome…',
+                colName:'Nome', colDesc:'Descrição',
+                btnReduce:'Minimizar', btnRestore:'Restaurar', btnApply:'Aplicar', btnClose:'Fechar',
+                btnDiffActive:'≠ Alterações', btnDiffAll:'≡ Tudo',
+                tooltipDiffOn:'Mostrar só os locais a alterar', tooltipDiffOff:'Mostrar todos os locais',
+                deplacerAide:'Mover a janela: arrastar, ou setas do teclado (Shift: passo grande). Clique duplo: posição padrão.',
+                redimAide:'Redimensionar a janela: arrastar, ou setas do teclado (Shift: passo grande)',
+                loadingPois:(n,total)=>`Carregando locais… ${n} / ${total}`,
+                applying:(n,total)=>`Aplicando… ${n} / ${total}`,
+                cancelBtn:'Cancelar',
+                noPoisLoaded:'✖ Nenhum local válido carregado',
+                anomalies:(n)=>`⚠️ ${n} anomalia${n>1?'s':''} na planilha`,
+                btnRetry:(n)=>`🔄 Tentar de novo (${n} loca${n>1?'is':'l'})`,
+                successMsg:(n)=>`✔ ${n} loca${n>1?'is gravados':'l gravado'}`,
+                btnExport:'📥 Exportar o relatório',
+                sheetHeaderErr:'Cabeçalhos de coluna ausentes ou não reconhecidos — aba ignorada',
+                sheetHeaderFallback:'cabeçalhos não reconhecidos: colunas lidas pela posição (A = link, B = nome, C = descrição)',
+                sheetHeaderConflit:'há cabeçalhos reconhecidos fora do lugar A/B/C — aba ignorada: dê nome às três colunas (link, nome, descrição)',
+                colonneDoublon:(lib, cols)=>`duas colunas para «${lib}» (${cols}): só a primeira é lida`,
+                plusApplique:'✔ a gravar:', plusMain:'✋ a definir à mão:', plusRefus:'⚠ não reconhecido:',
+                plusConforme:'· já correto:', plusAvant:'substitui:', plusRetire:'REMOVE',
+                urlInvalid:'URL inválida',
+                urlBadHost:'URL não reconhecida (deve ser waze.com ou beta.waze.com/…/editor)',
+                urlNoEnv:'parâmetro env= ausente', urlBadLat:'lat= ausente ou inválido',
+                urlBadLon:'lon= ausente ou inválido', urlBadZoom:'zoomLevel= ausente ou inválido',
+                urlNoVenues:'venues= ausente', urlNoVid:'não foi possível ler o identificador do local',
+                urlAutreEnv:(env, courant)=>`link de outro servidor (env=${env}, o editor está em ${courant}): o local não será encontrado`,
+                urlPlusieursLieux:'vários locais em venues=: só o primeiro é lido',
+                nameEmpty:'nome vazio', dupRow:(a,b)=>`Linhas ${a} e ${b}: link duplicado`,
+                rowLabel:'linha',
+                reportHeaders:['Link permanente','Nome antes','Nome depois','Descrição antes','Descrição depois','Estado','Campos não gravados','Erro'],
+                statusApplied:'✔ Aplicado', statusPartial:'⚠ Parcial', statusTimeout:'✖ Não encontrado', statusErreur:'✖ Erro',
+                masterCbTitle:'Marcar / desmarcar tudo',
+                poiCount:(n)=>`${n} loca${n>1?'is':'l'}`,
+                layerOffMsg:'⚠️ A camada «Locais» está desligada e não pôde ser ligada: ative-a (Camadas > Locais) e escolha a aba de novo.',
+                xlsxMissing:'⚠️ Não foi possível carregar a biblioteca do Excel (SheetJS). Verifique a conexão ou permita cdn.sheetjs.com e recarregue a página (F5).',
+                locateTitle:'Centralizar o mapa neste local',
+                valOui:'sim', valNon:'não',
+                chPerm:'Link permanente', chName:'Nome', chDesc:'Descrição', chAliases:'Nomes alternativos',
+                chPhone:'Telefone', chUrl:'Site', chServices:'Serviços', chCategories:'Categorias',
+                chParkingType:'Tipo de estacionamento', chHasTBR:'Tipo variável', chCostType:'Tarifa',
+                chPaymentType:'Formas de pagamento', chParkingServices:'Serviços do estacionamento', chLotType:'Localização',
+                chSpots:'Número de vagas', chCanExit:'Saída quando fechado',
+                chHours:'Horário', chAddress:'Endereço', chEntryPoints:'Pontos de entrada', chOperator:'Operador do estacionamento',
+                chGoogleName:'Nome no Google', chGoogleCategory:'Categoria no Google', chGooglePosition:'Posição no Google',
+                moHours:'o WME espera faixas de horário, não uma frase',
+                moAddress:'o WME espera um número e uma rua do seu próprio modelo',
+                moEntryPoints:'são pontos no mapa, não texto',
+                moOperator:'lista fechada no WME, cujas chaves não foram levantadas',
+                moGoogleName:'não é um campo do WME', moGoogleCategory:'não é um campo do WME', moGooglePosition:'não é um campo do WME',
+                vaPublic:'Público', vaPrivate:'Privado', vaRestricted:'Restrito',
+                vaFree:'Gratuito', vaLow:'Baixo', vaModerate:'Moderado', vaExpensive:'Caro',
+                vaMultiLevel:'Vários andares', vaStreetLevel:'Ao ar livre', vaStreetLevelCovered:'Ao ar livre, coberto', vaUnderground:'Subterrâneo',
+                vaCash:'Dinheiro', vaChecks:'Cheques', vaCredit:'Cartão de crédito', vaDebitCard:'Cartão de débito',
+                vaDigitalWallet:'Carteira digital', vaElectronicPass:'Passe eletrônico', vaMembership:'Mensalidade',
+                vaParkingApp:'Aplicativo', vaPermit:'Autorização', vaPrepaid:'Pré-pago', vaSmsCall:'SMS/Ligação',
+                vaAirConditioning:'Ar-condicionado', vaCreditCards:'Aceita cartão de crédito', vaCurbsidePickup:'Retirada na calçada',
+                vaDeliveries:'Entregas', vaDrivethrough:'Drive-thru', vaOutsideSeating:'Mesas ao ar livre',
+                vaParkingForCustomers:'Estacionamento para clientes', vaReservations:'Reservas', vaRestrooms:'Banheiros',
+                vaTakeAway:'Para viagem', vaValletService:'Serviço de manobrista', vaWheelchairAccessible:'Acessível para cadeira de rodas',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Traslado para o aeroporto', vaCarpoolParking:'Vagas de carona', vaCarWash:'Lava-jato',
+                vaCovered:'Coberto', vaDisabilityParking:'Vagas para deficientes', vaOnSiteAttendant:'Atendente no local', vaParkAndRide:'Estacionamento integrado',
+                vaSecurity:'Segurança', vaValet:'Manobrista', vaEvChargingStation:'Carregador de veículos elétricos',
+            },
+            'pt-PT': {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 Escolher um ficheiro',
+                chooseFileTitle:'Carregar um livro .xlsx a partir do seu disco',
+                selectSheet:'A folha do livro a aplicar',
+                fabTitle:'POI Event Updater — mostrar a janela',
+                fabTitleOn:'POI Event Updater — ocultar a janela',
+                btnApplyNone:'Nada assinalado', btnApplyOne:'Aplicar 1 linha',
+                btnApplyN:(n)=>`Aplicar as ${n} linhas assinaladas`,
+                btnApplyTitle:'Escrever as linhas assinaladas no editor. Nada é guardado: irá rever no WME.',
+                btnExportTitle:'Guardar o relatório desta aplicação',
+                footerHelpVide:'Nada é escrito no mapa enquanto não clicar em Aplicar.',
+                guideFichier:'Escolha o livro do evento.',
+                guideFichierSuite:'Depois escolherá a folha e reverá cada linha antes de aplicar.',
+                guideOnglet:'Escolha a folha a aplicar.',
+                guideOngletSuite:'Uma folha por evento. A folha «fora do evento» repõe os locais no estado habitual.',
+                colSelect:'Aplicar', colEtat:'Estado',
+                dropLigne1:'📄 Largue aqui um livro',
+                dropLigne2:'ou clique para o escolher',
+                dropTitre:'Largue um ficheiro .xlsx em qualquer ponto desta janela, ou clique para o escolher',
+                dropRefus:(nom)=>`«${nom}» não é um livro do Excel: aqui só se carregam ficheiros .xlsx e .xls.`,
+                sbOuvrir:'Mostrar a janela', sbOuvrirTitre:'Abrir a janela de trabalho — é aí que se carrega um livro e se revê antes de aplicar',
+                sbIntro:'Atualiza em lote o nome, a descrição e os campos dos locais a partir de um livro: uma folha por evento.',
+                sbAide:'Ajuda', historyVide:'Ainda não foi carregado nenhum livro.',
+                aideClasseurT:'O livro',
+                aideClasseur:'Uma folha por evento, uma linha por local. As colunas leem-se pelo cabeçalho: ligação permanente, nome, descrição e depois os campos do local (telefone, site, categorias, serviços, parque…).\nUma célula vazia num campo do local não pede nada. Uma descrição vazia APAGA a do local: é assim que uma folha «fora do evento» repõe os locais.',
+                aideRelireT:'Rever e aplicar',
+                aideRelire:'Cada linha mostra o antes (riscado) e o depois. O que muda vem assinalado; alterar um valor na pré-visualização decide de novo a caixa.\nAplicar escreve no editor sem guardar: reveja no mapa e depois clique em Guardar. Os locais com falha ficam assinalados, para tentar de novo.',
+                aideEtatsT:'Estados de uma linha',
+                aideEtats:'Número verde: campos a escrever.\n-n laranja: aplicar REMOVERIA n valores — nunca vem assinalada.\nSaE: local bloqueado acima do seu nível, a alteração segue como sugestão.\nL7: bloqueio do staff, nada é escrito.\n?: local não encontrado.\n✔: escrito, à espera de ser guardado.',
+                sbEcrit:'✍️ Aplicar escreve no editor; o script nunca guarda.',
+                majDispo:(v)=>`Nova versão ${v} disponível.`, majInstaller:'Instalar',
+                cancelTitle:'Interromper: o que já foi carregado mantém-se',
+                footerHelp:'Retire o visto ao que não quiser escrever. As linhas laranja REMOVEM valores: nunca vêm assinaladas.',
+                footerMasquees:(n)=>`${n} linha(s) assinalada(s) estão ocultas pelo filtro — também serão escritas.`,
+                bilanPartiel:(n)=>`⚠️ ${n} local(ais) só receberam parte dos valores — veja o relatório.`,
+                bilanEchec:(n)=>`⚠️ ${n} local(ais) não puderam ser tratados — as suas linhas ficam assinaladas:`,
+                bilanSae:(n)=>`⚠️ ${n} local(ais) bloqueado(s) acima do seu nível: a alteração segue como sugestão (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} alteração(ões) acrescentada(s) à pilha do WME — NADA FOI GUARDADO: reveja e depois clique em Guardar no editor.`,
+                bilanNonEnregistreSansCompte:'NADA FOI GUARDADO: reveja e depois clique em Guardar no editor.',
+                bilanErreurGenerale:(m)=>`✖ A escrita não pôde começar: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'Está em curso um carregamento ou uma escrita: aguarde o fim antes de carregar outro livro.',
+                cbTitre:'Escrever esta linha no editor',
+                cbFige:'Esta linha não pode ser escrita — veja o selo de estado',
+                colNameTitle:'O nome a escrever. Editável antes de aplicar.',
+                colDescTitle:'A descrição a escrever. Uma célula vazia APAGA a descrição do local.',
+                descEffacee:'⚠ a descrição do local será apagada',
+                nomEfface:'⚠ o nome do local seria apagado',
+                triTitre:'Ordenar por esta coluna',
+                badgePerteTitle:(n)=>`Aplicar REMOVERIA ${n} valor(es) ao local`,
+                badgeDiffTitle:(n)=>`${n} campo(s) a escrever`,
+                badgeRienTitle:'Nada a escrever: o local já tem estes valores',
+                badgeOffTitle:'Local não encontrado no editor: nada pode ser escrito',
+                badgePoseTitle:'Escrito no editor — à espera de ser guardado',
+                badgeSaeTitle:'Local bloqueado acima do seu nível: a alteração seguirá como sugestão (SaE)',
+                lockHardTitle:'Bloqueio de nível 7 (staff Waze) — edição impossível',
+                noFile:'Nenhum ficheiro escolhido',
+                historyTitle:'Ficheiros recentes', histLoaded:'📂 Carregado:', histApplied:'✔ Aplicado:',
+                histNeverApplied:'Nunca aplicado', clearHistoryTitle:'Limpar o histórico',
+                filterPlaceholder:'🔍 Filtrar por nome…',
+                colName:'Nome', colDesc:'Descrição',
+                btnReduce:'Minimizar', btnRestore:'Restaurar', btnApply:'Aplicar', btnClose:'Fechar',
+                btnDiffActive:'≠ Alterações', btnDiffAll:'≡ Tudo',
+                tooltipDiffOn:'Mostrar só os locais a alterar', tooltipDiffOff:'Mostrar todos os locais',
+                deplacerAide:'Mover a janela: arrastar, ou setas do teclado (Shift: passo grande). Duplo clique: posição predefinida.',
+                redimAide:'Redimensionar a janela: arrastar, ou setas do teclado (Shift: passo grande)',
+                loadingPois:(n,total)=>`A carregar locais… ${n} / ${total}`,
+                applying:(n,total)=>`A aplicar… ${n} / ${total}`,
+                cancelBtn:'Cancelar',
+                noPoisLoaded:'✖ Nenhum local válido carregado',
+                anomalies:(n)=>`⚠️ ${n} anomalia${n>1?'s':''} no livro`,
+                btnRetry:(n)=>`🔄 Tentar de novo (${n} loca${n>1?'is':'l'})`,
+                successMsg:(n)=>`✔ ${n} loca${n>1?'is escritos':'l escrito'}`,
+                btnExport:'📥 Exportar o relatório',
+                sheetHeaderErr:'Cabeçalhos de coluna ausentes ou não reconhecidos — folha ignorada',
+                sheetHeaderFallback:'cabeçalhos não reconhecidos: colunas lidas pela posição (A = ligação, B = nome, C = descrição)',
+                sheetHeaderConflit:'há cabeçalhos reconhecidos fora do lugar A/B/C — folha ignorada: dê nome às três colunas (ligação, nome, descrição)',
+                colonneDoublon:(lib, cols)=>`duas colunas para «${lib}» (${cols}): só a primeira é lida`,
+                plusApplique:'✔ a escrever:', plusMain:'✋ a definir à mão:', plusRefus:'⚠ não reconhecido:',
+                plusConforme:'· já conforme:', plusAvant:'substitui:', plusRetire:'REMOVE',
+                urlInvalid:'URL inválido',
+                urlBadHost:'URL não reconhecido (deve ser waze.com ou beta.waze.com/…/editor)',
+                urlNoEnv:'parâmetro env= em falta', urlBadLat:'lat= em falta ou inválido',
+                urlBadLon:'lon= em falta ou inválido', urlBadZoom:'zoomLevel= em falta ou inválido',
+                urlNoVenues:'venues= em falta', urlNoVid:'não foi possível ler o identificador do local',
+                urlAutreEnv:(env, courant)=>`ligação de outro servidor (env=${env}, o editor está em ${courant}): o local não será encontrado`,
+                urlPlusieursLieux:'vários locais em venues=: só o primeiro é lido',
+                nameEmpty:'nome vazio', dupRow:(a,b)=>`Linhas ${a} e ${b}: ligação duplicada`,
+                rowLabel:'linha',
+                reportHeaders:['Ligação permanente','Nome antes','Nome depois','Descrição antes','Descrição depois','Estado','Campos não escritos','Erro'],
+                statusApplied:'✔ Aplicado', statusPartial:'⚠ Parcial', statusTimeout:'✖ Não encontrado', statusErreur:'✖ Erro',
+                masterCbTitle:'Assinalar / retirar tudo',
+                poiCount:(n)=>`${n} loca${n>1?'is':'l'}`,
+                layerOffMsg:'⚠️ A camada «Locais» está desligada e não foi possível ligá-la: ative-a (Camadas > Locais) e escolha de novo a folha.',
+                xlsxMissing:'⚠️ Não foi possível carregar a biblioteca do Excel (SheetJS). Verifique a ligação ou autorize cdn.sheetjs.com e recarregue a página (F5).',
+                locateTitle:'Centrar o mapa neste local',
+                valOui:'sim', valNon:'não',
+                chPerm:'Ligação permanente', chName:'Nome', chDesc:'Descrição', chAliases:'Nomes alternativos',
+                chPhone:'Telefone', chUrl:'Site', chServices:'Serviços', chCategories:'Categorias',
+                chParkingType:'Tipo de parque', chHasTBR:'Tipo variável', chCostType:'Tarifa',
+                chPaymentType:'Formas de pagamento', chParkingServices:'Serviços do parque', chLotType:'Localização',
+                chSpots:'Número de lugares', chCanExit:'Saída quando fechado',
+                chHours:'Horário', chAddress:'Morada', chEntryPoints:'Pontos de entrada', chOperator:'Operador do parque',
+                chGoogleName:'Nome no Google', chGoogleCategory:'Categoria no Google', chGooglePosition:'Posição no Google',
+                moHours:'o WME espera intervalos horários, não uma frase',
+                moAddress:'o WME espera um número de porta e uma rua do seu próprio modelo',
+                moEntryPoints:'são pontos no mapa, não texto',
+                moOperator:'lista fechada no WME, cujas chaves não foram recolhidas',
+                moGoogleName:'não é um campo do WME', moGoogleCategory:'não é um campo do WME', moGooglePosition:'não é um campo do WME',
+                vaPublic:'Público', vaPrivate:'Privado', vaRestricted:'Restrito',
+                vaFree:'Gratuito', vaLow:'Baixo', vaModerate:'Moderado', vaExpensive:'Caro',
+                vaMultiLevel:'Vários pisos', vaStreetLevel:'Ao ar livre', vaStreetLevelCovered:'Ao ar livre, coberto', vaUnderground:'Subterrâneo',
+                vaCash:'Numerário', vaChecks:'Cheques', vaCredit:'Cartão de crédito', vaDebitCard:'Cartão de débito',
+                vaDigitalWallet:'Carteira digital', vaElectronicPass:'Via Verde / passe eletrónico', vaMembership:'Assinatura',
+                vaParkingApp:'Aplicação', vaPermit:'Autorização', vaPrepaid:'Pré-pagamento', vaSmsCall:'SMS/Chamada',
+                vaAirConditioning:'Ar condicionado', vaCreditCards:'Aceita cartões de crédito', vaCurbsidePickup:'Levantamento à porta',
+                vaDeliveries:'Entregas', vaDrivethrough:'Drive', vaOutsideSeating:'Esplanada',
+                vaParkingForCustomers:'Parque para clientes', vaReservations:'Reservas', vaRestrooms:'Casas de banho',
+                vaTakeAway:'Take-away', vaValletService:'Serviço de arrumador', vaWheelchairAccessible:'Acessível a cadeira de rodas',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'Vaivém para o aeroporto', vaCarpoolParking:'Lugares de boleia partilhada', vaCarWash:'Lavagem auto',
+                vaCovered:'Coberto', vaDisabilityParking:'Lugares para deficientes', vaOnSiteAttendant:'Funcionário no local', vaParkAndRide:'Parque dissuasor',
+                vaSecurity:'Vigilância', vaValet:'Arrumador (valet)', vaEvChargingStation:'Postos de carregamento',
+            },
+            he: {
+                tabTitle:'WME POI Event Updater',
+                panelTitle:'POI Event Updater', chooseFile:'📂 בחירת קובץ',
+                chooseFileTitle:'טעינת חוברת ‎.xlsx מהמחשב',
+                selectSheet:'הגיליון שיוחל',
+                fabTitle:'POI Event Updater — הצגת החלון',
+                fabTitleOn:'POI Event Updater — הסתרת החלון',
+                btnApplyNone:'לא סומן דבר', btnApplyOne:'החלת שורה אחת',
+                btnApplyN:(n)=>`החלת ${n} השורות המסומנות`,
+                btnApplyTitle:'כתיבת השורות המסומנות לעורך. דבר אינו נשמר: תבדקו ב-WME.',
+                btnExportTitle:'שמירת הדוח של החלה זו',
+                footerHelpVide:'דבר אינו נכתב למפה עד שלוחצים על החלה.',
+                guideFichier:'בחרו את חוברת האירוע.',
+                guideFichierSuite:'לאחר מכן תבחרו גיליון ותבדקו כל שורה לפני ההחלה.',
+                guideOnglet:'בחרו את הגיליון שיוחל.',
+                guideOngletSuite:'גיליון לכל אירוע. גיליון „מחוץ לאירוע“ מחזיר את המקומות למצבם הרגיל.',
+                colSelect:'החלה', colEtat:'מצב',
+                dropLigne1:'📄 גררו לכאן חוברת',
+                dropLigne2:'או לחצו כדי לבחור',
+                dropTitre:'גררו קובץ ‎.xlsx לכל מקום בחלון, או לחצו כדי לבחור',
+                dropRefus:(nom)=>`„${nom}“ אינו חוברת Excel: ניתן לטעון כאן רק קובצי ‎.xlsx ו-‎.xls.`,
+                sbOuvrir:'הצגת החלון', sbOuvrirTitre:'פתיחת חלון העבודה — שם טוענים חוברת ובודקים לפני ההחלה',
+                sbIntro:'עדכון מרוכז של שם, תיאור ושדות של מקומות מתוך חוברת: גיליון לכל אירוע.',
+                sbAide:'עזרה', historyVide:'עדיין לא נטענה חוברת.',
+                aideClasseurT:'החוברת',
+                aideClasseur:'גיליון לכל אירוע, שורה לכל מקום. העמודות נקראות לפי הכותרת: קישור קבוע, שם, תיאור, ואחריהם שדות המקום (טלפון, אתר, קטגוריות, שירותים, חניה…).\nתא ריק בשדה של המקום אינו מבקש דבר. תיאור ריק מוחק את תיאור המקום: כך גיליון „מחוץ לאירוע“ מחזיר את המקומות למצבם.',
+                aideRelireT:'בדיקה והחלה',
+                aideRelire:'כל שורה מציגה את הלפני (מחוק) ואת האחרי. מה שמשתנה מסומן מראש; עריכת ערך בתצוגה המקדימה מחליטה מחדש על התיבה.\nהחלה כותבת לעורך בלי לשמור: בדקו במפה ואז לחצו על שמירה. מקומות שנכשלו נשארים מסומנים, לניסיון חוזר.',
+                aideEtatsT:'מצבי שורה',
+                aideEtats:'מספר ירוק: שדות לכתיבה.\n‎-n כתום: ההחלה תסיר n ערכים — לעולם לא מסומנת מראש.\nSaE: מקום נעול מעל הדרגה שלכם, השינוי יישלח כהצעה.\nL7: נעילת צוות, דבר אינו נכתב.\n?: המקום לא נמצא.\n✔: נכתב, ממתין לשמירה.',
+                sbEcrit:'✍️ החלה כותבת לעורך; הסקריפט לעולם אינו שומר.',
+                majDispo:(v)=>`גרסה חדשה ${v} זמינה.`, majInstaller:'התקנה',
+                cancelTitle:'עצירה: מה שכבר נטען נשמר',
+                footerHelp:'בטלו את הסימון של מה שאינכם רוצים לכתוב. שורות כתומות מסירות ערכים: הן לעולם אינן מסומנות מראש.',
+                footerMasquees:(n)=>`${n} שורות מסומנות מוסתרות על ידי המסנן — גם הן ייכתבו.`,
+                bilanPartiel:(n)=>`⚠️ ${n} מקומות קיבלו רק חלק מהערכים — ראו את הדוח.`,
+                bilanEchec:(n)=>`⚠️ ${n} מקומות לא עובדו — השורות שלהם נשארות מסומנות:`,
+                bilanSae:(n)=>`⚠️ ${n} מקומות נעולים מעל הדרגה שלכם: השינוי יישלח כהצעה (SaE).`,
+                bilanNonEnregistre:(n)=>`${n} שינויים נוספו למחסנית של WME — דבר לא נשמר: בדקו, ואז לחצו על שמירה בעורך.`,
+                bilanNonEnregistreSansCompte:'דבר לא נשמר: בדקו, ואז לחצו על שמירה בעורך.',
+                bilanErreurGenerale:(m)=>`✖ הכתיבה לא יכלה להתחיל: ${m}`,
+                echecLigne:(nom, statut, err)=>`${nom} — ${statut}${err ? ': ' + err : ''}`,
+                occupeDepot:'טעינה או כתיבה מתבצעת כעת: המתינו לסיומה לפני טעינת חוברת אחרת.',
+                cbTitre:'כתיבת שורה זו לעורך',
+                cbFige:'לא ניתן לכתוב שורה זו — ראו את תג המצב',
+                colNameTitle:'השם שייכתב. ניתן לערוך לפני ההחלה.',
+                colDescTitle:'התיאור שייכתב. תא ריק מוחק את תיאור המקום.',
+                descEffacee:'⚠ תיאור המקום יימחק',
+                nomEfface:'⚠ שם המקום יימחק',
+                triTitre:'מיון לפי עמודה זו',
+                badgePerteTitle:(n)=>`ההחלה תסיר ${n} ערכים מהמקום`,
+                badgeDiffTitle:(n)=>`${n} שדות לכתיבה`,
+                badgeRienTitle:'אין מה לכתוב: למקום כבר יש ערכים אלה',
+                badgeOffTitle:'המקום לא נמצא בעורך: לא ניתן לכתוב דבר',
+                badgePoseTitle:'נכתב לעורך — ממתין לשמירה',
+                badgeSaeTitle:'מקום נעול מעל הדרגה שלכם: השינוי יישלח כהצעה (SaE)',
+                lockHardTitle:'נעילה בדרגה 7 (צוות Waze) — לא ניתן לערוך',
+                noFile:'לא נבחר קובץ',
+                historyTitle:'קבצים אחרונים', histLoaded:'📂 נטען:', histApplied:'✔ הוחל:',
+                histNeverApplied:'לא הוחל מעולם', clearHistoryTitle:'ניקוי ההיסטוריה',
+                filterPlaceholder:'🔍 סינון לפי שם…',
+                colName:'שם', colDesc:'תיאור',
+                btnReduce:'מזעור', btnRestore:'שחזור', btnApply:'החלה', btnClose:'סגירה',
+                btnDiffActive:'≠ שינויים', btnDiffAll:'≡ הכול',
+                tooltipDiffOn:'הצגת המקומות שישתנו בלבד', tooltipDiffOff:'הצגת כל המקומות',
+                deplacerAide:'הזזת החלון: גרירה, או חיצי המקלדת (Shift: צעד גדול). לחיצה כפולה: מיקום ברירת המחדל.',
+                redimAide:'שינוי גודל החלון: גרירה, או חיצי המקלדת (Shift: צעד גדול)',
+                loadingPois:(n,total)=>`טעינת מקומות… ${n} / ${total}`,
+                applying:(n,total)=>`מחיל… ${n} / ${total}`,
+                cancelBtn:'ביטול',
+                noPoisLoaded:'✖ לא נטען אף מקום תקין',
+                anomalies:(n)=>`⚠️ ${n} חריגות בחוברת`,
+                btnRetry:(n)=>`🔄 ניסיון חוזר (${n} מקומות)`,
+                successMsg:(n)=>`✔ ${n} מקומות נכתבו`,
+                btnExport:'📥 ייצוא הדוח',
+                sheetHeaderErr:'כותרות העמודות חסרות או לא מזוהות — הגיליון נדלג',
+                sheetHeaderFallback:'כותרות לא מזוהות: העמודות נקראות לפי מיקום (A = קישור, B = שם, C = תיאור)',
+                sheetHeaderConflit:'כותרות מזוהות אינן במקומן A/B/C — הגיליון נדלג: תנו שם לשלוש העמודות (קישור, שם, תיאור)',
+                colonneDoublon:(lib, cols)=>`שתי עמודות עבור „${lib}“ (${cols}): רק הראשונה נקראת`,
+                plusApplique:'✔ לכתיבה:', plusMain:'✋ להזנה ידנית:', plusRefus:'⚠ לא מזוהה:',
+                plusConforme:'· כבר תקין:', plusAvant:'מחליף:', plusRetire:'מסיר',
+                urlInvalid:'כתובת לא תקינה',
+                urlBadHost:'כתובת לא מזוהה (חייבת להיות waze.com או beta.waze.com/…/editor)',
+                urlNoEnv:'הפרמטר env= חסר', urlBadLat:'lat= חסר או לא תקין',
+                urlBadLon:'lon= חסר או לא תקין', urlBadZoom:'zoomLevel= חסר או לא תקין',
+                urlNoVenues:'venues= חסר', urlNoVid:'לא ניתן לקרוא את מזהה המקום',
+                urlAutreEnv:(env, courant)=>`קישור משרת אחר (env=${env}, העורך נמצא ב-${courant}): המקום לא יימצא`,
+                urlPlusieursLieux:'כמה מקומות ב-venues=: רק הראשון נקרא',
+                nameEmpty:'שם ריק', dupRow:(a,b)=>`שורות ${a} ו-${b}: קישור כפול`,
+                rowLabel:'שורה',
+                reportHeaders:['קישור קבוע','שם לפני','שם אחרי','תיאור לפני','תיאור אחרי','מצב','שדות שלא נכתבו','שגיאה'],
+                statusApplied:'✔ הוחל', statusPartial:'⚠ חלקי', statusTimeout:'✖ לא נמצא', statusErreur:'✖ שגיאה',
+                masterCbTitle:'סימון / ביטול הכול',
+                poiCount:(n)=>`${n} מקומות`,
+                layerOffMsg:'⚠️ שכבת „מקומות“ כבויה ולא ניתן היה להדליק אותה: הפעילו אותה (שכבות > מקומות) ובחרו שוב את הגיליון.',
+                xlsxMissing:'⚠️ לא ניתן היה לטעון את ספריית Excel ‏(SheetJS). בדקו את החיבור או אפשרו את cdn.sheetjs.com, ואז טענו מחדש את הדף (F5).',
+                locateTitle:'מרכוז המפה על מקום זה',
+                valOui:'כן', valNon:'לא',
+                chPerm:'קישור קבוע', chName:'שם', chDesc:'תיאור', chAliases:'שמות חלופיים',
+                chPhone:'טלפון', chUrl:'אתר', chServices:'שירותים', chCategories:'קטגוריות',
+                chParkingType:'סוג חניה', chHasTBR:'סוג משתנה', chCostType:'תעריף',
+                chPaymentType:'אמצעי תשלום', chParkingServices:'שירותי החניה', chLotType:'מיקום',
+                chSpots:'מספר מקומות חניה', chCanExit:'יציאה כשסגור',
+                chHours:'שעות פתיחה', chAddress:'כתובת', chEntryPoints:'נקודות כניסה', chOperator:'מפעיל החניה',
+                chGoogleName:'שם ב-Google', chGoogleCategory:'קטגוריה ב-Google', chGooglePosition:'מיקום ב-Google',
+                moHours:'WME מצפה לחלונות זמן, לא למשפט',
+                moAddress:'WME מצפה למספר בית ולרחוב מהמודל שלו',
+                moEntryPoints:'אלה נקודות במפה, לא טקסט',
+                moOperator:'רשימה סגורה ב-WME, שמפתחותיה לא נאספו',
+                moGoogleName:'אינו שדה של WME', moGoogleCategory:'אינו שדה של WME', moGooglePosition:'אינו שדה של WME',
+                vaPublic:'ציבורית', vaPrivate:'פרטית', vaRestricted:'מוגבלת',
+                vaFree:'חינם', vaLow:'נמוך', vaModerate:'בינוני', vaExpensive:'יקר',
+                vaMultiLevel:'רב-קומתי', vaStreetLevel:'במפלס הרחוב', vaStreetLevelCovered:'במפלס הרחוב, מקורה', vaUnderground:'תת-קרקעי',
+                vaCash:'מזומן', vaChecks:'המחאות', vaCredit:'כרטיס אשראי', vaDebitCard:'כרטיס חיוב',
+                vaDigitalWallet:'ארנק דיגיטלי', vaElectronicPass:'כרטיס אלקטרוני', vaMembership:'מנוי',
+                vaParkingApp:'אפליקציית חניה', vaPermit:'היתר', vaPrepaid:'תשלום מראש', vaSmsCall:'SMS/שיחה',
+                vaAirConditioning:'מיזוג אוויר', vaCreditCards:'מקבל כרטיסי אשראי', vaCurbsidePickup:'איסוף מהמדרכה',
+                vaDeliveries:'משלוחים', vaDrivethrough:'דרייב-אין', vaOutsideSeating:'ישיבה בחוץ',
+                vaParkingForCustomers:'חניה ללקוחות', vaReservations:'הזמנות', vaRestrooms:'שירותים',
+                vaTakeAway:'טייק-אוויי', vaValletService:'שירות ואלה', vaWheelchairAccessible:'נגיש לכיסא גלגלים',
+                vaWiFi:'Wi-Fi', vaAirportShuttle:'הסעה לשדה התעופה', vaCarpoolParking:'חניית קארפול', vaCarWash:'שטיפת רכב',
+                vaCovered:'מקורה', vaDisabilityParking:'חניית נכים', vaOnSiteAttendant:'נציג במקום', vaParkAndRide:'חנה וסע',
+                vaSecurity:'אבטחה', vaValet:'ואלה', vaEvChargingStation:'עמדת טעינה לרכב חשמלי',
+            },
         };
         const val = _strings[_peuLang]?.[key] ?? _strings.en[key] ?? key;
         return typeof val === 'function' ? val(...args) : val;
@@ -244,17 +1097,15 @@
     function saveHistory(history) {
         try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch {}
     }
-    function getOverlayGeom() {
-        try { return JSON.parse(localStorage.getItem(GEOM_KEY)) || null; }
-        catch { return null; }
-    }
-    function saveOverlayGeom(g) {
-        try { localStorage.setItem(GEOM_KEY, JSON.stringify(g)); } catch {}
+    /** La locale des dates, des nombres et du tri : celle du SCRIPT, pas du navigateur. */
+    function localeDuScript() {
+        return { fr: 'fr-FR', en: 'en-GB', de: 'de-DE', es: 'es-ES', it: 'it-IT',
+                 'pt-BR': 'pt-BR', 'pt-PT': 'pt-PT', he: 'he-IL' }[_peuLang] || 'en-GB';
     }
     function formatDateTime(iso) {
         if (!iso) return '—';
         const d = new Date(iso);
-        const loc = _peuLang === 'fr' ? 'fr-FR' : 'en-GB';
+        const loc = localeDuScript();
         return d.toLocaleDateString(loc) + ' ' + d.toLocaleTimeString(loc, {hour:'2-digit', minute:'2-digit'});
     }
     function recordFileLoaded(fileName) {
@@ -267,9 +1118,10 @@
         const entry = history.find(h => h.name === fileName);
         if (entry) { entry.applied = new Date().toISOString(); saveHistory(history); }
     }
+    /* Posé par initScript : l'historique vit dans le panneau latéral, et la
+       pose, qui a lieu dans la fenêtre, doit pouvoir le rafraîchir. */
+    let _rafraichirHistorique = () => {};
     // ────────────────────────────────────────────────────────────────────────
-
-    const PEU_EMOJI = '📍';
 
     /**
      * ECHAPPE UNE DONNEE AVANT DE L'INSERER DANS DU HTML.
@@ -279,11 +1131,16 @@
      *    lieu venu d'un classeur est une donnee EXTERNE, et ce script en pose
      *    dans des title= a chaque ligne.
      */
+    // ==== banc:esc ====
+    // Extrait par les bancs qui rendent du HTML : une copie dans un banc
+    // laisserait passer une régression de l'échappement (mesuré le 25/09/2026 :
+    // `return String(v)` gardait banc-ligne et banc-coque au vert).
     function esc(v) {
         return String(v === undefined || v === null ? '' : v)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
+    // ==== /banc:esc ====
 
     /* ======================================================================
        LA FEUILLE DE STYLE — une seule, injectee une fois, prefixe peu- partout.
@@ -301,9 +1158,13 @@
           manquante ne doit jamais faire DISPARAITRE une couleur.
        ====================================================================== */
     const CSS = `
+/* ⭐ CHARTE COMMUNE (25/09/2026) : #2196f3 pour les titres, les accents et le
+   rail des interrupteurs ; #1976d2 pour ce qui est PLEIN avec du texte blanc
+   (4,60:1 — le #2196f3 n'y donne que 3,12:1, sous le seuil AA). */
 :root {
-    --peu-blue:    #2C6ED5;
-    --peu-blue-dk: #1a4fa0;
+    --peu-blue:    #2196f3;
+    --peu-blue-plein: #1976d2;
+    --peu-blue-dk: #1565c0;
     --peu-green:   #43a047;
     --peu-red:     #e53935;
     --peu-orange:  #f57c00;
@@ -349,7 +1210,7 @@
     transition: box-shadow .15s;
 }
 #peu-fab-btn:hover  { box-shadow: 0 3px 10px rgba(0,0,0,.4); }
-#peu-fab-btn.peu-fab-on { box-shadow: 0 0 0 2px var(--peu-blue, #2C6ED5), 0 2px 6px rgba(0,0,0,.3); }
+#peu-fab-btn.peu-fab-on { box-shadow: 0 0 0 2px var(--peu-blue, #2196f3), 0 2px 6px rgba(0,0,0,.3); }
 .peu-fab-badge {
     position: absolute; top: -4px; right: -4px;
     background: var(--peu-green, #43a047); color: #fff;
@@ -381,7 +1242,7 @@
 #peu-overlay.peu-replie { height: auto !important; max-height: none !important; resize: none; }
 
 .peu-header {
-    background: linear-gradient(135deg, #3d84e8 0%, var(--peu-blue-dk, #1a4fa0) 100%);
+    background: linear-gradient(135deg, var(--peu-blue-plein, #1976d2) 0%, #0d47a1 100%);
     color: #fff; padding: 9px 12px;
     display: flex; align-items: center; justify-content: space-between;
     cursor: move; user-select: none;
@@ -393,7 +1254,11 @@
     display: flex; align-items: center; gap: 7px;
     min-width: 0; white-space: nowrap; overflow: hidden;
 }
-.peu-header-version { font-size: .833em; opacity: .6; flex-shrink: 0; }
+.peu-header-left .peu-icone { flex-shrink: 0; border-radius: 4px; }
+/* ⚠️ Plus d'opacité .6 : 2,30:1 sur le dégradé, illisible (WCAG 1.4.3). */
+.peu-header-version { font-size: .833em; color: #fff; font-weight: 400; flex-shrink: 0; }
+/* ⚠️ Le contour bleu du focus sur l'en-tête bleu : 1,32:1, invisible (1.4.11). */
+.peu-header :focus-visible, .peu-header:focus-visible { outline-color: #fff !important; }
 .peu-header-btns { display: flex; gap: 5px; flex-shrink: 0; }
 .peu-btn-icon {
     background: rgba(255,255,255,.18); border: none; color: #fff;
@@ -432,21 +1297,24 @@
       SOUS un texte reste blanc. Regle generale : ne jamais poser un FOND
       sans poser la COULEUR DE TEXTE qui va avec.
    ---------------------------------------------------------------------- */
+/* La pilule de la charte : radius 50px, 3px 10px, 600 11px. */
 .peu-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    padding: .417em 1em; border: none; border-radius: 50px;
+    padding: 3px 10px; border: none; border-radius: 50px;
     font-family: inherit; font-size: .917em; font-weight: 600;
-    height: auto; min-height: 28px; line-height: 1.35;
+    height: auto; min-height: 0; line-height: 1.35;
     cursor: pointer; white-space: nowrap;
     transition: filter .15s, transform .1s, background .15s;
 }
 .peu-btn:active:not(:disabled) { transform: scale(.97); }
-.peu-btn-primary { background: var(--peu-blue, #2C6ED5);   color: #fff; }
+.peu-btn-primary { background: var(--peu-blue-plein, #1976d2);   color: #fff; }
 .peu-btn-neutral { background: var(--peu-border, #dde3ea); color: var(--peu-text, #2d3748); }
-.peu-btn-primary:hover:not(:disabled) { background: var(--peu-blue-dk, #1a4fa0); color: #fff; }
+.peu-btn-primary:hover:not(:disabled) { background: var(--peu-blue-dk, #1565c0); color: #fff; }
 .peu-btn-neutral:hover:not(:disabled) { filter: brightness(.95); }
+/* Un filtre actif se marque d'un contour : un seul bouton PLEIN par écran. */
+.peu-btn-actif { box-shadow: inset 0 0 0 2px var(--peu-blue-plein, #1976d2); color: #0d47a1; }
 .peu-btn:disabled { opacity: .45; cursor: not-allowed; }
-.peu-btn-sm { padding: .25em .75em; font-size: .833em; min-height: 24px; }
+.peu-btn-sm { font-size: .833em; }
 .peu-btn-full { width: 100%; }
 
 /* Bouton discret de ligne (recentrage). Pas de fond, pas de bordure. */
@@ -476,17 +1344,20 @@
 }
 .peu-textarea { resize: vertical; min-height: 2.2em; line-height: 1.4; }
 .peu-input:focus, .peu-textarea:focus, .peu-search:focus, .peu-select:focus {
-    outline: none; border-color: var(--peu-blue, #2C6ED5);
-    box-shadow: 0 0 0 3px rgba(44,110,213,.15);
+    outline: none; border-color: var(--peu-blue, #2196f3);
+    box-shadow: 0 0 0 3px rgba(33,150,243,.18);
 }
 .peu-input:disabled, .peu-textarea:disabled { background: #f1f3f6; color: var(--peu-grey, #9e9e9e); }
+/* Un effacement se lit DANS le champ : le texte d'attente dit ce qui partira. */
+.peu-efface { border-color: #e0a060; }
+.peu-efface::placeholder { color: #b34700; font-style: italic; opacity: 1; }
 .peu-select { width: auto; padding: .2em .4em; }
 
 /* La case vit DANS un label : toute la zone devient cliquable. */
 .peu-check { display: inline-flex; align-items: center; cursor: pointer; }
 .peu-check input, .peu-checkbox {
     width: 15px; height: 15px; margin: 0;
-    cursor: pointer; accent-color: var(--peu-blue, #2C6ED5);
+    cursor: pointer; accent-color: var(--peu-blue-plein, #1976d2);
 }
 .peu-check input:disabled, .peu-checkbox:disabled { cursor: not-allowed; }
 
@@ -510,9 +1381,9 @@
 .peu-table colgroup col:nth-child(3) { width: 40%; }
 .peu-table colgroup col:nth-child(4) { width: auto; }
 .peu-table thead th {
-    background: var(--peu-bg, #f5f7f9); color: var(--peu-blue, #2C6ED5);
+    background: var(--peu-bg, #f5f7f9); color: var(--peu-blue-dk, #1565c0);
     font-size: .833em; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-    padding: 7px 6px; border-bottom: 2px solid var(--peu-blue, #2C6ED5);
+    padding: 7px 6px; border-bottom: 2px solid var(--peu-blue, #2196f3);
     position: sticky; top: 0; z-index: 2; text-align: start;
 }
 .peu-table thead th.center { text-align: center; }
@@ -536,11 +1407,13 @@
 .peu-row-hard     > td { background: #fdf0f0; }
 .peu-row-sae      > td:first-child { border-inline-start-color: var(--peu-warn, #f9a825); }
 .peu-row-sae      > td { background: #fffdf0; }
+.peu-row-posee    > td:first-child { border-inline-start-color: var(--peu-blue, #2196f3); }
 .peu-row-unloaded > td:first-child { border-inline-start-color: var(--peu-grey, #9e9e9e); }
 .peu-row-unloaded > td { background: #f5f5f5; color: var(--peu-grey, #9e9e9e); }
 
+/* ⚠️ #6b6b6b et non #8a8a8a : 3,45:1 sur blanc, sous le seuil AA (1.4.3). */
 .peu-cell-old {
-    color: #8a8a8a; font-size: .909em; line-height: 1.4; min-height: 14px;
+    color: #6b6b6b; font-size: .909em; line-height: 1.4; min-height: 14px;
     margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .peu-cell-old.changed {
@@ -555,12 +1428,14 @@
     padding: .083em .5em; border-radius: 50px;
     font-size: .833em; font-weight: 700; white-space: nowrap;
 }
+/* ⚠️ Teintes foncées recalculées pour 4,5:1 sur leur fond (WCAG 1.4.3) :
+   -n, SaE et = étaient à 3,46, 2,49 et 3,79 (audit du 25/09/2026). */
 .peu-badge-diff  { background: #e8f5e9; color: #1b5e20; cursor: help; }
-.peu-badge-perte { background: #fff3e0; color: #e65100; cursor: help; }
+.peu-badge-perte { background: #fff3e0; color: #a33c00; cursor: help; }
 .peu-badge-lock  { background: #ffebee; color: #c62828; cursor: help; }
-.peu-badge-sae   { background: #fff8e1; color: #f57f17; cursor: help; }
+.peu-badge-sae   { background: #fff8e1; color: #7a4f00; cursor: help; }
 .peu-badge-off   { background: #eceff1; color: #37474f; cursor: help; }
-.peu-badge-ok    { background: #eceff1; color: #607d8b; cursor: help; }
+.peu-badge-ok    { background: #eceff1; color: #455a64; cursor: help; }
 
 /* Les champs du lot D2, sous la ligne du lieu. */
 .peu-comp > td { background: rgba(0,0,0,.015); padding-top: 0; }
@@ -585,6 +1460,9 @@
 /* L orange dit « j enleve » : ni un succes, ni une erreur — une perte. */
 .peu-pastille-perte  { background: #fdf3e3; border-color: #f0d3a0; color: #8a5a00; }
 .peu-pastille b { font-weight: 600; }
+/* Ce que la valeur remplace, en clair : une infobulle ne s'atteint ni au
+   clavier, ni au doigt. */
+.peu-pastille-avant { font-style: italic; opacity: .9; }
 .peu-pastille-titre { color: var(--peu-text2, #566372); padding: 1px 0; font-size: .875em; }
 
 /* ----------------------------------------------------------------------
@@ -602,7 +1480,7 @@
 .peu-footer-actions { display: flex; gap: 6px; align-items: center; margin-inline-start: auto; }
 .peu-alert ul { margin: 3px 0 0; padding-inline-start: 16px; }
 .peu-alert ul li { margin-bottom: 2px; }
-.peu-error-title { font-weight: 700; display: block; margin-bottom: 4px; }
+.peu-error-title { font-weight: 700; display: list-item; margin-bottom: 4px; cursor: pointer; }
 
 /* ----------------------------------------------------------------------
    BANDEAUX — trois familles, et leur sens ne se melange pas :
@@ -623,7 +1501,7 @@
 }
 .peu-guide-n {
     flex: 0 0 auto; min-width: 17px; height: 17px; line-height: 17px; text-align: center;
-    border-radius: 50%; background: var(--peu-blue, #2C6ED5); color: #fff;
+    border-radius: 50%; background: var(--peu-blue-plein, #1976d2); color: #fff;
     font-size: .833em; font-weight: 700;
 }
 .peu-guide-suite { margin-top: 2px; opacity: .85; font-size: .909em; }
@@ -634,7 +1512,7 @@
     cursor: pointer; transition: border-color .15s, color .15s;
 }
 .peu-dropzone:hover, .peu-dropzone.peu-drop-hover {
-    border-color: var(--peu-blue, #2C6ED5); color: var(--peu-blue, #2C6ED5);
+    border-color: var(--peu-blue, #2196f3); color: var(--peu-blue-dk, #1565c0);
 }
 
 /* ----------------------------------------------------------------------
@@ -654,7 +1532,7 @@
 }
 .peu-prog-pct { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .peu-progress-bar-bg { height: 6px; background: #bbdefb; border-radius: 3px; overflow: hidden; margin: 5px 0 4px; }
-.peu-progress-bar { display: block; height: 100%; width: 0; background: var(--peu-blue, #2C6ED5);
+.peu-progress-bar { display: block; height: 100%; width: 0; background: var(--peu-blue, #2196f3);
                     border-radius: 3px; transition: width .15s linear; }
 .peu-prog-b { display: flex; align-items: center; gap: 6px; }
 .peu-prog-d { flex: 1 1 auto; font-size: .909em; font-variant-numeric: tabular-nums; }
@@ -664,25 +1542,50 @@
    ⚠️ Le panneau fait disparaitre son contenu des qu'on selectionne un objet
       sur la carte : on ne peut pas y travailler.
    ---------------------------------------------------------------------- */
+/* Valeurs de la charte, relevées dans WME sur WCT, WJN et WRP le 25/09/2026.
+   ⚠️ En px et non en em : le panneau ne suit pas la densité de la fenêtre. */
 .peu-container {
-    padding: 10px; font-family: 'Rubik','Open Sans',sans-serif;
-    font-size: var(--peu-fs-base, 12px); color: var(--peu-text, #2d3748);
+    padding: 10px 12px; font-family: 'Rubik','Open Sans',sans-serif;
+    font-size: 12px; color: var(--peu-text, #2d3748);
 }
-.peu-container h3 { margin: 0 0 8px; font-size: 1.083em; color: var(--peu-blue, #2C6ED5); }
-.peu-side-sect {
-    font-size: .833em; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--peu-blue, #2C6ED5); border-bottom: 1px solid var(--peu-border, #dde3ea);
-    margin: 12px 0 6px; padding-bottom: 3px;
+.peu-container h2 {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 700; color: var(--peu-blue, #2196f3); margin: 0 0 8px;
+}
+.peu-container h2 img { flex-shrink: 0; border-radius: 4px; }
+.peu-container h2 span { font-size: 11px; font-weight: 400; color: #9e9e9e; }
+.peu-hint { font-size: 11px; color: var(--peu-text2, #566372); line-height: 1.6; margin: 0 0 8px; }
+.peu-sec {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--peu-blue, #2196f3); margin: 14px 0 6px;
     display: flex; align-items: center; gap: 5px;
 }
+.peu-sb-maj { margin: 0 0 8px; padding: 5px 8px; border-radius: 8px; background: #ffebee; color: #c62828; font-size: 11px; font-weight: 600; }
+.peu-sb-maj a { color: #c62828; }
+.peu-help-section { border: 1px solid var(--peu-border, #dde3ea); border-radius: 8px; margin-bottom: 4px; overflow: hidden; }
+.peu-help-hdr {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    height: auto; min-height: 0; margin: 0; border: none; font-family: inherit; text-align: start;
+    padding: 5px 9px; font-size: 11px; font-weight: 700; cursor: pointer;
+    background: var(--peu-bg, #f5f7f9); color: var(--peu-text, #2d3748); user-select: none;
+}
+.peu-help-hdr.on { color: var(--peu-blue-dk, #1565c0); background: #e3f2fd; }
+.peu-help-hdr:hover { background: #eef4fb; }
+.peu-help-body { padding: 7px 9px; font-size: 11px; line-height: 1.5; color: var(--peu-text, #2d3748); white-space: pre-line; }
+.peu-sb-foot {
+    margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--peu-border, #dde3ea);
+    font-size: 11px; line-height: 1.6; text-align: center;
+}
+.peu-sb-foot a { color: var(--peu-blue, #2196f3); }
+.peu-sb-note { color: #9e9e9e; }
 .peu-hist-row {
     margin-bottom: 5px; padding: 5px 7px; background: var(--peu-bg, #f5f7f9);
-    border-radius: 4px; border-inline-start: 3px solid var(--peu-blue, #2C6ED5);
-    font-size: .833em;
+    border-radius: 4px; border-inline-start: 3px solid var(--peu-blue, #2196f3);
+    font-size: 11px;
 }
-.peu-hist-name { font-weight: 700; color: var(--peu-blue, #2C6ED5);
+.peu-hist-name { font-weight: 700; color: var(--peu-blue-dk, #1565c0);
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.peu-hist-meta { color: var(--peu-text2, #566372); margin-top: 1px; }
+.peu-hist-meta { font-size: 11px; color: var(--peu-text2, #566372); margin-top: 1px; }
 
 /* La poignee de redimensionnement, en bas a droite. */
 #peu-resize {
@@ -698,8 +1601,10 @@
 /* ⚠️ FOCUS VISIBLE SUR TOUT CE QUI EST ATTEIGNABLE AU CLAVIER : nos champs
    posent outline:none, et sans cette regle on tabule a l'aveugle. */
 #peu-overlay :focus-visible, #peu-fab-btn:focus-visible, .peu-container :focus-visible {
-    outline: 2px solid var(--peu-blue, #2C6ED5); outline-offset: 1px; border-radius: 3px;
+    outline: 2px solid var(--peu-blue-plein, #1976d2); outline-offset: 1px; border-radius: 3px;
 }
+/* Pendant une pose ou un balayage, le tableau est inerte, et cela se voit. */
+#peu-overlay.peu-occupe .peu-table { opacity: .7; }
 
 /* ⚠️ LA BALISE kbd A SON PROPRE STYLE DANS WME, en texte BLANC : sans cette
    regle les touches s'affichent blanc sur fond clair, donc vides. Ne jamais
@@ -930,11 +1835,6 @@
           pose: false, libelle: 'Position Google', motif: 'ne relève pas de WME' }
     ];
 
-    /** Les champs qui visent le MÊME attribut de WME, pour les fusionner. */
-    function champsParCible(cible) {
-        return CHAMPS.filter(c => c.pose && c.cible === cible);
-    }
-
     /**
      * Ce qu'une ligne du classeur demande, trié en trois tas.
      *
@@ -1054,8 +1954,44 @@
             return { columns: parNom, byPosition: false, usable: true };
         }
 
+        /* ⚠️⚠️ LE REPLI SE REFUSE QUAND LES EN-TÊTES DISENT AUTRE CHOSE QUE A/B/C.
+           « Lien WME | Description | Nom » : une seule en-tête non reconnue, et le
+           repli lisait la DESCRIPTION comme le NOM, sur tout l'onglet, chaque
+           ligne cochée d'office (audit du 25/09/2026). Les deux en-têtes
+           reconnues disaient pourtant où elles étaient.
+           ⚠️ Cette garde ne joue QU'EN REPLI : un classeur lu par ses en-têtes
+              n'est jamais concerné. */
+        const repli = { perm: 0, name: 1, desc: 2 };
+        const conflit = Object.keys(parNom).some(cle => parNom[cle] !== repli[cle]);
         const troisEnTetes = [0, 1, 2].every(i => normalizeHeader(ligne[i]) !== '');
-        return { columns: { perm: 0, name: 1, desc: 2 }, byPosition: true, usable: troisEnTetes };
+        return { columns: repli, byPosition: true, usable: troisEnTetes && !conflit, conflit: conflit };
+    }
+
+    /**
+     * LES CHAMPS QUE PLUSIEURS COLONNES REVENDIQUENT.
+     *
+     * ⚠️ La première colonne gagne (`mapChamps`), et c'était dit nulle part : un
+     *    classeur qui porte « Site » et « Website » se lisait par la première,
+     *    et l'autre était ignorée sans un mot.
+     *
+     * @return {{cle: string, colonnes: number[]}[]}
+     */
+    function colonnesEnDouble(entetes) {
+        const ligne = Array.isArray(entetes) ? entetes : [];
+        const doublons = [];
+        CHAMPS.forEach(champ => {
+            const colonnes = [];
+            ligne.forEach((e, i) => { if (champ.entetes.indexOf(normalizeHeader(e)) !== -1) colonnes.push(i); });
+            if (colonnes.length > 1) doublons.push({ cle: champ.cle, colonnes: colonnes });
+        });
+        return doublons;
+    }
+
+    /** La lettre d'une colonne de tableur : 0 → A, 26 → AA. */
+    function lettreDeColonne(i) {
+        let s = '';
+        for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+        return s;
     }
 
     /**
@@ -1176,19 +2112,32 @@
         return pertes;
     }
 
+    /* ⭐⭐⭐ UNE LISTE DONT L'ORDRE COMPTE. La PREMIÈRE catégorie d'un lieu est sa
+       catégorie principale — celle qui donne l'icône et le type. Comparées
+       triées, `RESTAURANT, CAFE` et `CAFE, RESTAURANT` passaient pour égales :
+       l'aperçu disait « rien à faire », la relecture disait « posé », et la
+       catégorie principale changeait en silence dès qu'une autre colonne de la
+       ligne la faisait cocher (audit du 25/09/2026). */
+    const LISTES_ORDONNEES = ['categories'];
+
     function comparerAuLieu(attributs, aPoser) {
         const identiques = [], differents = [];
-        const memeValeur = (a, b) => {
+        const memeValeur = (a, b, ordonnee) => {
             if (Array.isArray(a) || Array.isArray(b)) {
-                const x = (a || []).slice().sort(), y = (b || []).slice().sort();
+                const x = (a || []).slice(), y = (b || []).slice();
+                if (!ordonnee) { x.sort(); y.sort(); }
                 return x.length === y.length && x.every((v, i) => v === y[i]);
             }
             return a === b;
         };
 
+        /* ⚠️ Le nom et la description ont leur comparaison à eux (les deux
+           colonnes de l'aperçu). Les NOMS ALTERNATIFS, eux, se comparent ici :
+           exclus, un ajout arrivait « = », non coché, et n'était jamais posé. */
         Object.keys(aPoser).forEach(cible => {
-            if (CIBLES_HERITEES.includes(cible)) return;
-            (memeValeur(valeurDuLieu(attributs, cible), aPoser[cible]) ? identiques : differents).push(cible);
+            if (cible === 'name' || cible === 'description') return;
+            (memeValeur(valeurDuLieu(attributs, cible), aPoser[cible], LISTES_ORDONNEES.includes(cible))
+                ? identiques : differents).push(cible);
         });
 
         return { identiques, differents };
@@ -1228,10 +2177,13 @@
      *
      * ⇒ Proposer une perte demande un geste, jamais un défaut.
      */
-    function cocherDOffice(nomChange, descriptionChange, champsDifferents, pertes) {
+    function cocherDOffice(nomChange, descriptionChange, champsDifferents, pertes, nomVide) {
         const differe = nomChange || descriptionChange || champsDifferents > 0;
 
-        return differe && !pertes;
+        /* ⚠️ UN NOM VIDE NE SE POSE PAS PAR DÉFAUT : il effacerait le nom du
+           lieu. La ligne reste proposée — la cocher reste possible — mais c'est
+           un geste, jamais un défaut. */
+        return differe && !pertes && !nomVide;
     }
     // ==== /banc:pose ====
 
@@ -1239,10 +2191,33 @@
     // Rendu pur : il ne touche qu'au document qu'on lui donne, pour être
     // éprouvable hors de WME (tools/banc-apercu.html).
 
+    const majusculeInit = (c) => c.charAt(0).toUpperCase() + c.slice(1);
+
+    /**
+     * Ce qu'une clé du dictionnaire donne, ou rien si elle n'y est pas.
+     * ⚠️ `t` rend la clé elle-même quand elle manque : c'est ce qui se teste.
+     */
+    function traduitOuRien(traduire, cle) {
+        if (!traduire) return null;
+        const tr = traduire(cle);
+        return tr && tr !== cle ? tr : null;
+    }
+
+    /**
+     * LE LIBELLÉ D'UN CHAMP, DANS LA LANGUE DU SCRIPT.
+     * ⚠️ `CHAMPS.libelle` reste la donnée, en français : les bancs s'y fient, et
+     *    c'est le repli quand aucune traduction n'est fournie. L'écran, lui,
+     *    passe par le dictionnaire (`ch` + clé du champ).
+     */
+    function libelleChamp(champ, traduire) {
+        if (!champ) return '';
+        return traduitOuRien(traduire, 'ch' + majusculeInit(champ.cle)) || champ.libelle;
+    }
+
     /** Le libellé d'un champ posé, retrouvé par sa cible. */
-    function libelleDeCible(cible) {
+    function libelleDeCible(cible, traduire) {
         const champ = CHAMPS.find(c => c.cible === cible && c.pose);
-        return champ ? champ.libelle : cible;
+        return champ ? libelleChamp(champ, traduire) : cible;
     }
 
     /**
@@ -1256,7 +2231,12 @@
      *    venir de l'un ou l'autre — `VALET` n'existe que du côté parking, alors
      *    que les deux colonnes visent le même attribut.
      */
-    function libelleDeValeur(cle) {
+    function libelleDeValeur(cle, traduire) {
+        /* La langue du script d'abord (`va` + clé WME en casse chameau) ; les
+           catégories, que WME rend déjà traduites, n'ont pas de clé et
+           tombent sur la table. */
+        const tr = traduitOuRien(traduire, 'va' + String(cle).toLowerCase().split('_').map(majusculeInit).join(''));
+        if (tr) return tr;
         for (const table of Object.values(VALEURS_WME)) {
             if (table[cle] && table[cle].length) {
                 return table[cle][0];
@@ -1265,18 +2245,21 @@
         return cle;
     }
 
-    /** Ce qu'une valeur posée donne à lire : les listes se NOMMENT, elles ne se comptent pas. */
-    function valeurLisible(v) {
-        if (v === true) return 'oui';
-        if (v === false) return 'non';
+    /**
+     * Ce qu'une valeur posée donne à lire : les listes se NOMMENT, elles ne se comptent pas.
+     * @param traduire `t` dans le script ; absent (banc), oui/non restent en français.
+     */
+    function valeurLisible(v, traduire) {
+        if (v === true) return traduire ? traduire('valOui') : 'oui';
+        if (v === false) return traduire ? traduire('valNon') : 'non';
         if (Array.isArray(v)) {
-            const noms = v.map(libelleDeValeur);
+            const noms = v.map((x) => libelleDeValeur(x, traduire));
             const texte = noms.join(', ');
             /* Au-delà de trois, on nomme les deux premières et on compte le reste :
                une pastille qui déborde ne se lit plus. */
             return texte.length <= 44 ? texte : noms.slice(0, 2).join(', ') + ' +' + (noms.length - 2);
         }
-        const texte = libelleDeValeur(String(v));
+        const texte = libelleDeValeur(String(v), traduire);
         return texte.length > 28 ? texte.slice(0, 27) + '…' : texte;
     }
 
@@ -1340,15 +2323,21 @@
             zone.appendChild(titre(traduire('plusApplique')));
             poses.forEach(cible => {
                 const perdu = pertes[cible];
-                const el = pastille(perdu ? 'perte' : 'pose', libelleDeCible(cible),
-                    valeurLisible(valeurs.aPoser[cible])
-                    + (perdu ? ' — ' + traduire('plusRetire') + ' ' + valeurLisible(perdu) : ''));
-                /* ⚠️ CE QUE LA VALEUR REMPLACE, EN INFOBULLE : un tableau écrase tout
-                   son contenu dans WME, et sans cela on efface sans le savoir ce
-                   qu'un autre éditeur avait renseigné. */
+                const el = pastille(perdu ? 'perte' : 'pose', libelleDeCible(cible, traduire),
+                    valeurLisible(valeurs.aPoser[cible], traduire)
+                    + (perdu ? ' — ' + traduire('plusRetire') + ' ' + valeurLisible(perdu, traduire) : ''));
+                /* ⚠️ CE QUE LA VALEUR REMPLACE, EN CLAIR DANS LA PASTILLE : un tableau
+                   écrase tout son contenu dans WME. En infobulle seulement, on
+                   écrasait sans les voir les horaires ou les services posés par un
+                   autre éditeur — et l'infobulle ne s'atteint ni au clavier, ni au
+                   doigt (audit du 25/09/2026). */
                 const avant = attributs ? valeurDuLieu(attributs, cible) : undefined;
-                if (avant !== undefined && avant !== null && String(avant) !== '') {
-                    el.title = traduire('plusAvant') + ' ' + valeurLisible(avant);
+                if (avant !== undefined && avant !== null && String(avant) !== ''
+                    && !(Array.isArray(avant) && !avant.length)) {
+                    const rem = doc.createElement('span');
+                    rem.className = 'peu-pastille-avant';
+                    rem.textContent = ' (' + traduire('plusAvant') + ' ' + valeurLisible(avant, traduire) + ')';
+                    el.appendChild(rem);
                 }
                 zone.appendChild(el);
             });
@@ -1362,15 +2351,17 @@
         if (valeurs.montres.length) {
             zone.appendChild(titre(traduire('plusMain')));
             valeurs.montres.forEach(m => {
-                const el = pastille('montre', m.libelle, valeurLisible(m.valeur));
-                if (m.motif) el.title = m.motif;
+                const champ = CHAMPS.find(c => c.cle === m.cle);
+                const el = pastille('montre', champ ? libelleChamp(champ, traduire) : m.libelle, valeurLisible(m.valeur, traduire));
+                if (m.motif) el.title = traduitOuRien(traduire, 'mo' + majusculeInit(m.cle)) || m.motif;
                 zone.appendChild(el);
             });
         }
         if (valeurs.refus.length) {
             zone.appendChild(titre(traduire('plusRefus')));
             valeurs.refus.forEach(r => {
-                zone.appendChild(pastille('refus', r.libelle, '« ' + r.valeurs.join(' », « ') + ' »'));
+                const champRefuse = CHAMPS.find(c => c.libelle === r.libelle);
+                zone.appendChild(pastille('refus', champRefuse ? libelleChamp(champRefuse, traduire) : r.libelle, '« ' + r.valeurs.join(' », « ') + ' »'));
             });
         }
 
@@ -1384,10 +2375,10 @@
     let _sdk = null;
     function obtenirSdk() {
         if (_sdk) return _sdk;
-        if (typeof window.getWmeSdk !== 'function') {
+        if (typeof pw.getWmeSdk !== 'function') {
             throw new Error('SDK de WME indisponible');
         }
-        _sdk = window.getWmeSdk({ scriptId: 'poi-event-updater', scriptName: 'WME POI Event Updater' });
+        _sdk = pw.getWmeSdk({ scriptId: 'poi-event-updater', scriptName: 'WME POI Event Updater' });
         return _sdk;
     }
 
@@ -1424,96 +2415,34 @@
         return 'ok';
     }
 
-    function makeDraggable(box, handle) {
-        let startX, startY, startLeft, startTop;
-        let geomReady = false; // passe à true une fois la position initiale posée
-
-        const persist = () => {
-            if (!geomReady) return;                            // pas avant le placement initial
-            if (box.classList.contains('minimized')) return;   // ne pas mémoriser l'état réduit
-            if (!box.offsetWidth || !box.offsetHeight) return; // box détachée/masquée → ignorer
-            // On ne mémorise QUE la largeur et la position : la hauteur reste automatique
-            // (elle s'adapte au nombre de POI de chaque événement, sinon elle resterait
-            // figée sur une petite taille d'un événement précédent → tableau illisible).
-            saveOverlayGeom({
-                left: box.offsetLeft, top: box.offsetTop,
-                width: box.offsetWidth
-            });
-        };
-
-        // Géométrie initiale : restaure la taille/position mémorisées SI valides,
-        // sinon largeur par défaut du CSS, ancrée en haut à droite (laisse voir la carte).
-        const applyInitialGeom = () => {
-            const saved = getOverlayGeom();
-            const valid = saved && saved.width > 0
-                          && Number.isFinite(saved.left) && Number.isFinite(saved.top);
-            const vw = window.innerWidth, vh = window.innerHeight;
-            // Largeur restaurée si valide ; hauteur JAMAIS forcée → s'adapte au contenu.
-            if (valid) box.style.width = Math.min(saved.width, vw - 20) + 'px';
-            const bw = box.offsetWidth, bh = box.offsetHeight;
-            const left = valid ? saved.left : (vw - bw - 20); // défaut : coin haut-droit
-            const top  = valid ? saved.top  : 64;              // sous le header WME
-            // Clamp dans le viewport (la fenêtre a pu changer de taille depuis)
-            box.style.left = Math.max(0, Math.min(vw - bw, left)) + 'px';
-            box.style.top  = Math.max(0, Math.min(vh - bh, top)) + 'px';
-            geomReady = true;
-        };
-        requestAnimationFrame(applyInitialGeom);
-
-        // Mémorise la taille quand l'utilisateur redimensionne (poignée native, débounce léger)
-        let saveTO = null;
-        const ro = new ResizeObserver(() => {
-            clearTimeout(saveTO);
-            saveTO = setTimeout(persist, 300);
-        });
-        ro.observe(box);
-
-        handle.addEventListener('mousedown', e => {
-            // Ne pas déclencher sur les boutons
-            if (e.target.closest('.peu-btn-icon')) return;
-            e.preventDefault();
-            startX = e.clientX; startY = e.clientY;
-            startLeft = box.offsetLeft; startTop = box.offsetTop;
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
-        });
-
-        function onMove(e) {
-            const dx = e.clientX - startX, dy = e.clientY - startY;
-            const newLeft = Math.max(0, Math.min(window.innerWidth  - box.offsetWidth,  startLeft + dx));
-            const newTop  = Math.max(0, Math.min(window.innerHeight - box.offsetHeight, startTop  + dy));
-            box.style.left = newLeft + 'px';
-            box.style.top  = newTop  + 'px';
-        }
-
-        function onUp() {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            persist();
-        }
+    /** La date du jour en AAAA-MM-JJ : un nom de fichier ne se lit pas dans une langue. */
+    function dateIso(d) {
+        const z = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
     }
 
-    // ── Export rapport ───────────────────────────────────────────────────────
+    /**
+     * LE RAPPORT DE LA POSE, EN CLASSEUR.
+     *
+     * ⭐⭐⭐ IL DIT QUOI REPRENDRE. Le bilan renvoyait « voir le rapport » sur une
+     *    pose partielle, et le rapport n'avait que cinq colonnes : ni le
+     *    permalien, ni les champs non posés, ni le message d'erreur — `partial`
+     *    y sortait brut. On ne savait pas quel champ reprendre avant
+     *    d'enregistrer (audit du 25/09/2026).
+     */
     function exportReport(eventName, results) {
-        // results = [{name, oldName, newName, oldDesc, newDesc, status}]
         const wb = XLSX.utils.book_new();
-        const headers = t('reportHeaders');
-        const statusLabel = s => s === 'applied' ? t('statusApplied') : s === 'timeout' ? t('statusTimeout') : s;
-        const rows = results.map(r => [r.oldName, r.newName, r.oldDesc, r.newDesc, statusLabel(r.status)]);
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const cles = { applied: 'statusApplied', partial: 'statusPartial', timeout: 'statusTimeout', erreur: 'statusErreur' };
+        const statut = (r) => t(cles[r.status] || 'statusErreur') + (r.verrou === 'sae' ? ' (SaE)' : '');
+        const rows = results.map(r => [r.perm || '', r.oldName, r.newName, r.oldDesc, r.newDesc, statut(r),
+            (r.manques || []).map((c) => libelleDeCible(c, t)).join(', '), r.erreur || '']);
+        const ws = XLSX.utils.aoa_to_sheet([t('reportHeaders'), ...rows]);
+        ws['!cols'] = [40, 30, 30, 45, 45, 18, 30, 30].map(w => ({wch: w}));
 
-        // Largeurs colonnes
-        ws['!cols'] = [30, 30, 45, 45, 15].map(w => ({wch: w}));
-
-        // Style en-tête (fond bleu, texte blanc) — XLSX.js lite ne supporte pas les styles
-        // On préfixe le nom de l'onglet avec la date
-        const dateStr = new Date().toLocaleDateString('fr-FR').replace(/\//g, '-');
-        const sheetName = `${dateStr} ${eventName}`.slice(0, 31); // max 31 chars Excel
-        XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-        // Téléchargement
-        const fileName = `POI_Report_${eventName.replace(/\s+/g, '_')}_${dateStr}.xlsx`;
-        XLSX.writeFile(wb, fileName);
+        const jour = dateIso(new Date());
+        /* ⚠️ Excel refuse \ / ? * [ ] : dans un nom d'onglet, et le plafonne à 31. */
+        XLSX.utils.book_append_sheet(wb, ws, (jour + ' ' + eventName).replace(/[\\/?*[\]:]/g, '-').slice(0, 31));
+        XLSX.writeFile(wb, 'POI_Report_' + eventName.replace(/[\\/:*?"<>|\s]+/g, '_') + '_' + jour + '.xlsx');
     }
     // ────────────────────────────────────────────────────────────────────────
     function centerAndLoad(permalink, vid, timeoutMs = 4000) {
@@ -1522,7 +2451,7 @@
             if (!coords) return resolve(null);
             const { lat, lon } = coords;
 
-            // Zoom de préchargement volontairement large (16–17) : le lat/lon d'un
+            // Zoom de préchargement volontairement large (16-17) : le lat/lon d'un
             // permalink cadre souvent la CARTE, pas le POI (ex. Fresnes 1 : venue à
             // 361 m du point du permalink). À zoom 19, un POI décalé tombe hors des
             // tuiles chargées et n'est jamais trouvé → « non chargé ». On suit le
@@ -1542,10 +2471,10 @@
             const t0 = Date.now();
             const poll = setInterval(() => {
                 const v = W.model.venues.getObjectById(vid);
-                // « Chargé » = venue présent avec un nom. On n'exige PAS isEditable() :
-                // un POI verrouillé au-dessus du rang de l'éditeur est bien chargé,
-                // il sera simplement proposé en Suggest an Edit (cf. getLockStatus).
-                const ready = v && v.attributes && v.attributes.name;
+                // « Chargé » = présent dans le modèle (`lieuPret`), avec ou sans nom.
+                // On n'exige PAS isEditable() : un POI verrouillé au-dessus du rang
+                // de l'éditeur est bien chargé (cf. getLockStatus).
+                const ready = lieuPret(v);
                 if (ready || Date.now() - t0 > timeoutMs) {
                     clearInterval(poll);
                     resolve(ready ? v : null);
@@ -1608,7 +2537,7 @@
             const vid = getVenueIdFromPermalink(p.perm);
             // Si déjà en mémoire, pas besoin de centrer
             let venue = W.model.venues.getObjectById(vid);
-            if (!venue || !venue.attributes.name) {
+            if (!lieuPret(venue)) {
                 venue = await centerAndLoad(p.perm, vid);
             }
             results[vid] = venue;
@@ -1694,15 +2623,17 @@
      */
     function coqueOverlay(version) {
         return ''
-            + '<div class="peu-header" id="peu-header">'
+            + '<div class="peu-header" id="peu-header" tabindex="0" title="' + esc(t('deplacerAide')) + '">'
             +   '<div class="peu-header-left">'
-            +     '<span aria-hidden="true">' + PEU_EMOJI + '</span>'
-            +     '<span>' + esc(t('panelTitle')) + '</span>'
+            +     '<img class="peu-icone" src="' + ICONE + '" alt="" width="18" height="18">'
+            +     '<span id="peu-titre">' + esc(t('panelTitle')) + '</span>'
             +     '<span class="peu-header-version">v' + esc(version) + '</span>'
             +   '</div>'
             +   '<div class="peu-header-btns">'
-            +     '<button type="button" class="peu-btn-icon" id="peu-btn-replier" title="' + esc(t('btnReduce')) + '">-</button>'
-            +     '<button type="button" class="peu-btn-icon" id="peu-btn-fermer" title="' + esc(t('btnClose')) + '">X</button>'
+            +     '<button type="button" class="peu-btn-icon" id="peu-btn-replier" title="' + esc(t('btnReduce')) + '"'
+            +       ' aria-label="' + esc(t('btnReduce')) + '" aria-expanded="true">-</button>'
+            +     '<button type="button" class="peu-btn-icon" id="peu-btn-fermer" title="' + esc(t('btnClose')) + '"'
+            +       ' aria-label="' + esc(t('btnClose')) + '">X</button>'
             +   '</div>'
             + '</div>'
             + '<div id="peu-strip">'
@@ -1726,7 +2657,8 @@
             +            ' title="' + esc(t('btnApplyTitle')) + '">' + esc(t('btnApply')) + '</button>'
             +   '</div>'
             + '</div>'
-            + '<div id="peu-resize" aria-hidden="true"></div>';
+            + '<div id="peu-resize" tabindex="0" role="button" title="' + esc(t('redimAide')) + '"'
+            +   ' aria-label="' + esc(t('redimAide')) + '"></div>';
     }
 
     /**
@@ -1764,8 +2696,12 @@
     function etatDeLaLigne(infos) {
         if (!infos.charge)      return 'unloaded';
         if (infos.verrou === 'hard') return 'hard';
-        if (infos.verrou === 'sae')  return 'sae';
+        /* ⚠️ LA PERTE AVANT LE SaE : l'ordre inverse masquait la perte d'une ligne
+           verrouillée au-dessus du rang — badge « SaE », ni « -n » ni liseré
+           orange (audit du 25/09/2026). Le badge de la perte dit alors les deux. */
         if (infos.pertes > 0)   return 'perte';
+        if (infos.verrou === 'sae')  return 'sae';
+        if (infos.posee)        return 'posee';
         if (infos.nomChange || infos.descChange || infos.champsDiff > 0) return 'diff';
 
         return 'ok';
@@ -1782,7 +2718,12 @@
         if (etat === 'unloaded') return { classe: 'peu-badge-off',   texte: '?',  titre: t('badgeOffTitle') };
         if (etat === 'hard')     return { classe: 'peu-badge-lock',  texte: 'L' + (infos.niveau || ''), titre: t('lockHardTitle') };
         if (etat === 'sae')      return { classe: 'peu-badge-sae',   texte: 'SaE', titre: t('badgeSaeTitle') };
-        if (etat === 'perte')    return { classe: 'peu-badge-perte', texte: '-' + infos.pertes, titre: t('badgePerteTitle', infos.pertes) };
+        if (etat === 'perte') {
+            const sae = infos.verrou === 'sae';
+            return { classe: 'peu-badge-perte', texte: '-' + infos.pertes + (sae ? ' SaE' : ''),
+                titre: t('badgePerteTitle', infos.pertes) + (sae ? ' — ' + t('badgeSaeTitle') : '') };
+        }
+        if (etat === 'posee')    return { classe: 'peu-badge-diff',  texte: '✔', titre: t('badgePoseTitle') };
         if (etat === 'diff') {
             const n = (infos.nomChange ? 1 : 0) + (infos.descChange ? 1 : 0) + infos.champsDiff;
             return { classe: 'peu-badge-diff', texte: String(n), titre: t('badgeDiffTitle', n) };
@@ -1816,6 +2757,11 @@
 
         const vieux = (val, change) => '<div class="peu-cell-old' + (change ? ' changed' : '') + '"'
             + (val ? ' title="' + esc(val) + '"' : '') + '>' + (val ? esc(val) : '&mdash;') + '</div>';
+        /* ⚠️ UN EFFACEMENT SE LIT DANS LE CHAMP, sans décocher : une cellule vide
+           EFFACE la description (c'est voulu — l'onglet ordinaire remet les lieux
+           à nu), mais l'écran la montrait comme une modification ordinaire. */
+        const efface = (oui, cle) => oui ? ' placeholder="' + esc(t(cle)) + '"' : '';
+        const effaceDesc = vue.descChange && vue.desc === '';
 
         return '<tr class="' + classes + '" data-idx="' + Number(vue.idx) + '">'
             + '<td class="center">'
@@ -1828,11 +2774,15 @@
             +   '<span class="peu-badge ' + badge.classe + '" title="' + esc(badge.titre) + '">' + esc(badge.texte) + '</span>'
             + '</td>'
             + '<td>' + vieux(vue.ancienNom, vue.nomChange)
-            +   '<input type="text" class="peu-input" data-nom' + (fige ? ' disabled' : '')
-            +     ' value="' + esc(vue.nom) + '" title="' + esc(t('colNameTitle')) + '"></td>'
+            +   '<input type="text" class="peu-input' + (vue.nomVide ? ' peu-efface' : '') + '" data-nom dir="auto"'
+            +     (fige ? ' disabled' : '') + efface(vue.nomVide, 'nomEfface')
+            +     ' value="' + esc(vue.nom) + '" title="' + esc(t('colNameTitle')) + '"'
+            +     ' aria-label="' + esc(t('colName')) + '"></td>'
             + '<td>' + vieux(vue.ancienDesc, vue.descChange)
-            +   '<textarea class="peu-textarea" data-desc rows="1"' + (fige ? ' disabled' : '')
-            +     ' title="' + esc(t('colDescTitle')) + '">' + esc(vue.desc) + '</textarea></td>'
+            +   '<textarea class="peu-textarea' + (effaceDesc ? ' peu-efface' : '') + '" data-desc rows="1" dir="auto"'
+            +     (fige ? ' disabled' : '') + efface(effaceDesc, 'descEffacee')
+            +     ' title="' + esc(t('colDescTitle')) + '" aria-label="' + esc(t('colDesc')) + '">'
+            +     esc(vue.desc) + '</textarea></td>'
             + '</tr>';
     }
 
@@ -1851,10 +2801,10 @@
             +   '<div style="font-size:.833em;font-weight:700;margin-top:2px">' + esc(t('colSelect')) + '</div>'
             + '</th>'
             + '<th class="center">' + esc(t('colEtat')) + '</th>'
-            + '<th class="sortable" data-tri="nom" title="' + esc(t('triTitre')) + '">'
-            +   esc(t('colName')) + '<i class="peu-sort-icon">&#9650;</i></th>'
-            + '<th class="sortable" data-tri="desc" title="' + esc(t('triTitre')) + '">'
-            +   esc(t('colDesc')) + '<i class="peu-sort-icon">&#9650;</i></th>'
+            + '<th class="sortable" data-tri="nom" tabindex="0" aria-sort="none" title="' + esc(t('triTitre')) + '">'
+            +   esc(t('colName')) + '<i class="peu-sort-icon" aria-hidden="true">&#9650;</i></th>'
+            + '<th class="sortable" data-tri="desc" tabindex="0" aria-sort="none" title="' + esc(t('triTitre')) + '">'
+            +   esc(t('colDesc')) + '<i class="peu-sort-icon" aria-hidden="true">&#9650;</i></th>'
             + '</tr></thead>';
     }
     // ==== /banc:ligne ====
@@ -1948,8 +2898,9 @@
 
         const wrap = document.createElement('div');
         wrap.id = 'peu-fab-wrap';
-        wrap.innerHTML = '<button type="button" id="peu-fab-btn" title="' + esc(t('fabTitle')) + '">'
-            + '<img src="' + TAB_ICON + '" alt="" width="22" height="22" style="display:block">'
+        wrap.innerHTML = '<button type="button" id="peu-fab-btn" title="' + esc(t('fabTitle')) + '"'
+            + ' aria-label="' + esc(t('fabTitle')) + '">'
+            + '<img src="' + ICONE + '" alt="" width="22" height="22" style="display:block;border-radius:5px">'
             + '<span class="peu-fab-badge" id="peu-fab-badge"></span>'
             + '</button>';
         cont.appendChild(wrap);
@@ -1979,6 +2930,8 @@
         const ouvert = !!document.querySelector('#peu-overlay.peu-open');
         btn.classList.toggle('peu-fab-on', ouvert);
         btn.title = t(ouvert ? 'fabTitleOn' : 'fabTitle');
+        btn.setAttribute('aria-label', btn.title);
+        btn.setAttribute('aria-expanded', String(ouvert));
 
         const badge = document.getElementById('peu-fab-badge');
         const nb = (poiData || []).length;
@@ -2077,8 +3030,13 @@
         document.addEventListener('mouseup', () => {
             if (!actif) return;
             actif = false;
-            const r = ov.getBoundingClientRect();
-            ecrireGeometrie({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+            memoriserGeometrie(ov);
+        });
+
+        /* ⭐ AU CLAVIER AUSSI (WCAG 2.5.7) : l'en-tête prend le focus, les flèches
+           déplacent la fenêtre — seulement quand c'est LUI qui a le focus. */
+        poignee.addEventListener('keydown', (e) => {
+            if (e.target === poignee) deplacerAuClavier(ov, e, false);
         });
 
         /* ⭐ DOUBLE-CLIC SUR L'EN-TETE : retour au dimensionnement automatique.
@@ -2127,9 +3085,52 @@
         document.addEventListener('mouseup', () => {
             if (!actif) return;
             actif = false;
-            const r = ov.getBoundingClientRect();
-            ecrireGeometrie({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+            memoriserGeometrie(ov);
         });
+
+        poignee.addEventListener('keydown', (e) => deplacerAuClavier(ov, e, true));
+    }
+
+    /**
+     * MÉMORISE LA GÉOMÉTRIE DE LA FENÊTRE.
+     *
+     * ⚠️ REPLIÉE, ELLE NE MESURE QUE SON EN-TÊTE : on gardait alors une hauteur
+     *    de 120 px, et la fenêtre dépliée au chargement suivant n'avait plus de
+     *    place pour son tableau. Repliée, on garde la hauteur d'avant.
+     */
+    function memoriserGeometrie(ov) {
+        const r = ov.getBoundingClientRect();
+        const memo = lireGeometrie();
+        const h = ov.classList.contains('peu-replie')
+            ? (memo ? memo.h : Math.round(bornesCarte().bas - r.top))
+            : Math.round(r.height);
+        ecrireGeometrie({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: h });
+    }
+
+    /**
+     * DÉPLACER OU REDIMENSIONNER AU CLAVIER : flèches, Maj pour un grand pas.
+     *
+     * ⚠️ LA PROPAGATION S'ARRÊTE ICI, ET SEULEMENT POUR LES FLÈCHES : WME les
+     *    écoute pour faire glisser la carte, et les deux bougeraient ensemble.
+     *    Toute autre touche passe — Ctrl+S compris.
+     */
+    function deplacerAuClavier(ov, e, redim) {
+        const pas = e.shiftKey ? 64 : 16;
+        const d = { ArrowLeft: [-pas, 0], ArrowRight: [pas, 0], ArrowUp: [0, -pas], ArrowDown: [0, pas] }[e.key];
+        if (!d || e.ctrlKey || e.altKey || e.metaKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const r = ov.getBoundingClientRect();
+        const bornes = bornesCarte();
+        const g = bornerFenetre(redim
+            ? { x: r.left, y: r.top, w: r.width + d[0], h: r.height + d[1] }
+            : { x: r.left + d[0], y: r.top + d[1], w: r.width, h: r.height }, bornes);
+        ov.style.left = g.x + 'px';
+        ov.style.top = g.y + 'px';
+        ov.style.right = 'auto';
+        if (redim) { ov.style.width = g.w + 'px'; ov.style.height = g.h + 'px'; }
+        ov.style.maxHeight = Math.max(120, bornes.bas - g.y) + 'px';
+        memoriserGeometrie(ov);
     }
 
     /**
@@ -2145,6 +3146,10 @@
 
         ov = document.createElement('div');
         ov.id = 'peu-overlay';
+        /* Une fenêtre NON modale : la carte reste utilisable à côté. */
+        ov.setAttribute('role', 'dialog');
+        ov.setAttribute('aria-labelledby', 'peu-titre');
+        if (_peuLang === 'he') ov.dir = 'rtl';
         ov.innerHTML = coqueOverlay(PEU_VERSION);
         document.body.appendChild(ov);
 
@@ -2160,7 +3165,7 @@
 
         /* ⭐ LE SEUL BOUTON PLEIN DE LA FENETRE : l'etape suivante. Il etait un
            glyphe d'un caractere dans la barre de titre, colle a celui qui ferme. */
-        ov.querySelector('#peu-btn-appliquer').addEventListener('click', () => { appliquerLignes(); });
+        ov.querySelector('#peu-btn-appliquer').addEventListener('click', () => { appliquerLignes().catch(signalerErreur); });
 
         ov.querySelector('#peu-btn-export').addEventListener('click', () => {
             if (_apercu && _apercu.resultats) exportReport(_apercu.eventName, _apercu.resultats);
@@ -2178,7 +3183,7 @@
            affiche relancerait la lecture de tous les lieux sans rien changer. */
         ov.querySelector('#peu-select-onglet').addEventListener('change', (e) => {
             if (e.target.value && (!_apercu || _apercu.eventName !== e.target.value)) {
-                ouvrirApercu(e.target.value);
+                ouvrirApercu(e.target.value).catch(signalerErreur);
             }
         });
         ov.querySelector('#peu-btn-replier').addEventListener('click', () => {
@@ -2186,6 +3191,8 @@
             const b = ov.querySelector('#peu-btn-replier');
             b.textContent = replie ? '+' : '-';
             b.title = t(replie ? 'btnRestore' : 'btnReduce');
+            b.setAttribute('aria-label', b.title);
+            b.setAttribute('aria-expanded', String(!replie));
         });
 
         window.addEventListener('resize', () => {
@@ -2197,6 +3204,7 @@
 
     function ouvrirOverlay() {
         const ov = construireOverlay();
+        const dejaOuverte = ov.classList.contains('peu-open');
         ov.classList.add('peu-open');
         placerFenetre(ov);
         /* ⭐ RIEN DE CHARGE ⇒ ON DIT PAR OU COMMENCER. Une fenetre vide avec un
@@ -2205,12 +3213,21 @@
             montrerGuide(poiData.length ? 'guideOnglet' : 'guideFichier',
                 poiData.length ? 'guideOngletSuite' : 'guideFichierSuite');
         }
+        /* ⚠️ LE FOCUS ENTRE DANS LA FENÊTRE À L'OUVERTURE (WCAG 2.4.3) — et
+           seulement là : la rouvrir alors qu'elle l'est ne le déplace pas. */
+        if (!dejaOuverte) {
+            const cible = ov.querySelector(poiData.length ? '#peu-select-onglet' : '#peu-btn-fichier');
+            if (cible && !cible.hidden && !cible.disabled) cible.focus({ preventScroll: true });
+        }
         majFab();
     }
 
     function fermerOverlay() {
         const ov = document.getElementById('peu-overlay');
         if (ov) ov.classList.remove('peu-open');
+        /* Le focus revient d'où l'on vient : le bouton de la carte. */
+        const fab = document.getElementById('peu-fab-btn');
+        if (ov && fab && ov.contains(document.activeElement)) fab.focus({ preventScroll: true });
         majFab();
     }
 
@@ -2230,7 +3247,7 @@
         tabLabel.style.justifyContent = 'center';
         tabLabel.style.height = '100%';
         const tabIcon = document.createElement('img');
-        tabIcon.src = TAB_ICON;
+        tabIcon.src = ICONE;
         tabIcon.alt = t('tabTitle');
         tabIcon.width = 18;
         tabIcon.height = 18;
@@ -2259,10 +3276,31 @@
               n'etait homogene — il n'y avait rien a quoi etre homogene. */
         const container = document.createElement('div');
         container.className = 'peu-container';
+        if (_peuLang === 'he') container.dir = 'rtl';
 
-        const title = document.createElement('h3');
-        title.textContent = PEU_EMOJI + ' ' + t('panelTitle');
+        /* ⭐ LA CHARTE COMMUNE (WCT, WJN, WRP, WDA) : l'icône du script, son nom et
+           sa version en tête ; la pastille de nouvelle version ; une phrase qui
+           dit à quoi il sert. Valeurs relevées dans WME le 25/09/2026. */
+        const title = document.createElement('h2');
+        title.innerHTML = '<img src="' + ICONE + '" alt="" width="18" height="18">'
+            + esc(t('panelTitle')) + ' <span>v' + esc(PEU_VERSION) + '</span>';
         container.appendChild(title);
+
+        const maj = document.createElement('p');
+        maj.className = 'peu-sb-maj';
+        maj.id = 'peu-sb-maj';
+        maj.hidden = true;
+        maj.innerHTML = '<span></span> <a href="#" data-maj>' + esc(t('majInstaller')) + '</a>';
+        maj.querySelector('[data-maj]').addEventListener('click', (e) => {
+            e.preventDefault();
+            window.open(URL_INSTALLER, '_blank', 'noopener');
+        });
+        container.appendChild(maj);
+
+        const intro = document.createElement('p');
+        intro.className = 'peu-hint';
+        intro.textContent = t('sbIntro');
+        container.appendChild(intro);
 
         /* ⚠️ HORS DES SECTIONS, ET EN PREMIER : « afficher la fenetre » est ce
            qu'on vient chercher ici neuf fois sur dix. Range sous un titre, il
@@ -2292,50 +3330,68 @@
             btnFenetre.disabled = true;
         }
 
-        /* Le titre de section, et la zone d'historique en dessous. */
+        /* ⚠️ UN SEUL TITRE « FICHIERS RÉCENTS » : il s'affichait deux fois, le
+           second portant la corbeille. La corbeille vit désormais dans le titre,
+           et n'apparaît que s'il y a quelque chose à effacer. */
         const titreHist = document.createElement('div');
-        titreHist.className = 'peu-side-sect';
-        titreHist.textContent = t('historyTitle');
+        titreHist.className = 'peu-sec';
+        titreHist.innerHTML = '<span aria-hidden="true">🕘</span><span style="flex:1">' + esc(t('historyTitle')) + '</span>'
+            + '<button type="button" class="peu-btn-center" data-raz hidden title="' + esc(t('clearHistoryTitle')) + '"'
+            + ' aria-label="' + esc(t('clearHistoryTitle')) + '">🗑</button>';
         container.appendChild(titreHist);
+        const btnRaz = titreHist.querySelector('[data-raz]');
+        btnRaz.addEventListener('click', () => { saveHistory([]); renderHistory(); });
 
         const historyDiv = document.createElement('div');
         container.appendChild(historyDiv);
 
-        /* ⚠️ L'EMPLACEMENT DES REGLAGES EST RESERVE, ET IL LE DIT. Une section
-           vide sans un mot se lit comme un defaut d'affichage. */
-        const titreReg = document.createElement('div');
-        titreReg.className = 'peu-side-sect';
-        titreReg.textContent = t('sbReglages');
-        container.appendChild(titreReg);
+        /* ⭐ L'AIDE SE REPLIE (charte) : elle est là quand on la cherche, et ne
+           pousse pas le reste hors de vue quand on ne la cherche pas. */
+        const titreAide = document.createElement('div');
+        titreAide.className = 'peu-sec';
+        titreAide.innerHTML = '<span aria-hidden="true">❓</span>' + esc(t('sbAide'));
+        container.appendChild(titreAide);
+        [['aideClasseurT', 'aideClasseur'], ['aideRelireT', 'aideRelire'], ['aideEtatsT', 'aideEtats']].forEach(([cleT, cleC], i) => {
+            const bloc = document.createElement('div');
+            bloc.className = 'peu-help-section';
+            bloc.innerHTML = '<button type="button" class="peu-help-hdr" aria-expanded="false" aria-controls="peu-aide-' + i + '">'
+                + '<span>' + esc(t(cleT)) + '</span><span aria-hidden="true">▶</span></button>'
+                + '<div class="peu-help-body" id="peu-aide-' + i + '" hidden></div>';
+            bloc.querySelector('.peu-help-body').textContent = t(cleC);
+            const hdr = bloc.querySelector('.peu-help-hdr');
+            hdr.addEventListener('click', () => {
+                const ouvert = hdr.getAttribute('aria-expanded') !== 'true';
+                hdr.setAttribute('aria-expanded', String(ouvert));
+                hdr.classList.toggle('on', ouvert);
+                hdr.lastElementChild.textContent = ouvert ? '▼' : '▶';
+                bloc.querySelector('.peu-help-body').hidden = !ouvert;
+            });
+            container.appendChild(bloc);
+        });
 
-        const noteReg = document.createElement('div');
-        noteReg.className = 'peu-hist-meta';
-        noteReg.textContent = t('sbReglagesNote');
-        container.appendChild(noteReg);
+        /* LE PIED : où parler du script, où l'installer, où lire son code — puis
+           ce qu'il fait de la carte. ⚠️ PAS « ne modifie jamais la carte » comme
+           les scripts voisins : celui-ci ÉCRIT, et il doit le dire. */
+        const pied = document.createElement('p');
+        pied.className = 'peu-sb-foot';
+        pied.innerHTML = '💬 <a href="' + URL_DISCUSS + '" target="_blank" rel="noopener">Discuss</a>'
+            + ' &nbsp;·&nbsp; 🔗 <a href="' + URL_GF + '" target="_blank" rel="noopener">GreasyFork</a>'
+            + ' &nbsp;·&nbsp; <a href="' + URL_GH + '" target="_blank" rel="noopener">GitHub</a>'
+            + '<br><span class="peu-sb-note"></span>';
+        pied.querySelector('.peu-sb-note').textContent = t('sbEcrit');
+        container.appendChild(pied);
 
         function renderHistory() {
             historyDiv.innerHTML = '';
             const history = getHistory();
-            if (!history.length) return;
-
-            // En-tête avec bouton RAZ
-            const hheader = document.createElement('div');
-            hheader.className = 'peu-side-sect';
-            const htitle = document.createElement('div');
-            htitle.style.flex = '1';
-            htitle.textContent = t('historyTitle');
-            const btnRaz = document.createElement('button');
-            btnRaz.textContent = '🗑';
-            btnRaz.title = t('clearHistoryTitle');
-            btnRaz.className = 'peu-btn-center';
-            btnRaz.onmouseenter = () => btnRaz.style.color = '#c0392b';
-            btnRaz.onmouseleave = () => btnRaz.style.color = '#aaa';
-            btnRaz.onclick = () => {
-                saveHistory([]);
-                renderHistory();
-            };
-            hheader.appendChild(htitle); hheader.appendChild(btnRaz);
-            historyDiv.appendChild(hheader);
+            btnRaz.hidden = !history.length;
+            if (!history.length) {
+                const vide = document.createElement('div');
+                vide.className = 'peu-hist-meta';
+                vide.textContent = t('historyVide');
+                historyDiv.appendChild(vide);
+                return;
+            }
 
             history.forEach(h => {
                 const row = document.createElement('div');
@@ -2362,184 +3418,256 @@
            travailler. */
         installerFab();
         renderHistory();
+        verifierMaj();
 
-        /**
-         * LE RAPPORT D'ANOMALIES — dans la FENETRE, pas dans le panneau.
-         *
-         * ⭐ IL DIT CE QUI N'EST PAS ENTRE. Une ligne ecartee du classeur ne se
-         *    voit nulle part ailleurs : ni dans le tableau, qui ne montre que ce
-         *    qui est retenu, ni sur la carte. Sans ce rapport, le fichier parait
-         *    complet et il ne l'est pas.
-         */
-        function showValidationReport(warnings) {
-            const ov = document.getElementById('peu-overlay');
-            const corps = ov ? ov.querySelector('#peu-body') : null;
-            if (!corps) return;
-            const vieux = corps.querySelector('[data-rapport]');
-            if (vieux) vieux.remove();
-            if (!warnings.length) return;
-            const validationReport = document.createElement('div');
-            validationReport.className = 'peu-alert peu-alert-warn';
-            validationReport.setAttribute('data-rapport', '');
-            corps.prepend(validationReport);
-            const title = document.createElement('div');
-            title.className = 'peu-error-title';
-            title.textContent = t('anomalies', warnings.length) + ' :';
-            validationReport.appendChild(title);
-            const ul = document.createElement('ul');
-            warnings.forEach(w => {
-                const li = document.createElement('li'); li.style.marginBottom = '2px';
-                li.textContent = w; ul.appendChild(li);
-            });
-            validationReport.appendChild(ul);
-        }
+        _rafraichirHistorique = renderHistory;
 
         fileInput.addEventListener('change', e => {
             const file = e.target.files[0];
             /* ⚠️ ON REPART DE ZERO A CHAQUE FICHIER : laisser le bandeau de
                l'ancien classeur pendant qu'on en lit un autre, c'est afficher
-               deux verites a la fois. */
+               deux verites a la fois. L'aperçu et ses anomalies partent aussi. */
             poiData = [];
+            _apercu = null;
+            _anomalies = [];
+            _fichierCourant = null;
             majStrip(null, [], 0);
             montrerGuide('guideFichier', 'guideFichierSuite');
             if (!file) return;
             const reader = new FileReader();
             reader.onload = ev => {
                 try {
-                    /* Le référentiel des catégories vient de l'éditeur, dans SA langue.
-                       Un échec laisse la table vide : les catégories seront alors
-                       refusées et signalées, jamais posées à l'aveugle. */
-                    try { chargerCategories(obtenirSdk()); } catch (e) { /* signalé à la ligne */ }
-                    const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
-                    const all = [];
-                    const warnings = [];
-
-                    wb.SheetNames.filter(n => n !== 'Config').forEach(sheet => {
-                        const sh = wb.Sheets[sheet];
-                        // Les colonnes se lisent par leur EN-TÊTE, avec repli sur les
-                        // positions A/B/C : l'ordre des colonnes cesse d'être un contrat
-                        // tacite, et une colonne ajoutée à droite ne décale plus rien.
-                        const rows = XLSX.utils.sheet_to_json(sh, {header:1, defval:''});
-                        const plan = mapColumns(rows[0]);
-                        if (!plan.usable) {
-                            warnings.push(`[${sheet}] ${t('sheetHeaderErr')}`);
-                            return;
-                        }
-                        if (plan.byPosition) warnings.push(`[${sheet}] ${t('sheetHeaderFallback')}`);
-                        // Le numéro de ligne affiché est celui du tableur, même si la
-                        // feuille ne commence pas en A1 : sans cela, l'anomalie renvoie
-                        // à une ligne que personne ne retrouve.
-                        const premiere = (XLSX.utils.decode_range(sh['!ref'] || 'A1:C1').s.r || 0) + 1;
-                        const champsIdx = mapChamps(rows[0], plan.byPosition);
-                        const sheetPerms = new Map();
-                        rows.slice(1).forEach((cells, idx) => {
-                            const rowNum = premiere + 1 + idx;
-                            const valeur = (i) => {
-                                const v = cells[i];
-                                return v === undefined || v === null ? '' : v;
-                            };
-                            const r = {
-                                perm: String(valeur(plan.columns.perm)).trim(),
-                                name: valeur(plan.columns.name),
-                                desc: valeur(plan.columns.desc)
-                            };
-                            if (!r.perm) return; // ligne vide ignorée silencieusement
-
-                            // 1. URL syntaxiquement valide ?
-                            let parsedUrl;
-                            try { parsedUrl = new URL(r.perm); } catch {
-                                warnings.push(`[${sheet}] ${t('rowLabel')} ${rowNum}: ${t('urlInvalid')}`);
-                                return;
-                            }
-
-                            // 2. Domaine et chemin WME valides ?
-                            const validHost = ['www.waze.com', 'waze.com', 'beta.waze.com'].includes(parsedUrl.hostname);
-                            const validPath = parsedUrl.pathname.includes('/editor');
-                            if (!validHost || !validPath) {
-                                warnings.push(`[${sheet}] ${t('urlBadHost')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-
-                            // 3. Paramètres obligatoires présents et cohérents ?
-                            const params   = parsedUrl.searchParams;
-                            const lat      = parseFloat(params.get('lat'));
-                            const lon      = parseFloat(params.get('lon'));
-                            const zoom     = params.get('zoomLevel');
-                            const venues   = params.get('venues');
-
-                            if (!params.get('env')) {
-                                warnings.push(`[${sheet}] ${t('urlNoEnv')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-                            if (isNaN(lat) || lat < -90 || lat > 90) {
-                                warnings.push(`[${sheet}] ${t('urlBadLat')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-                            if (isNaN(lon) || lon < -180 || lon > 180) {
-                                warnings.push(`[${sheet}] ${t('urlBadLon')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-                            if (!zoom || isNaN(parseInt(zoom))) {
-                                warnings.push(`[${sheet}] ${t('urlBadZoom')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-                            if (!venues) {
-                                warnings.push(`[${sheet}] ${t('urlNoVenues')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-
-                            // 4. Extraire l'ID du venue
-                            const vid = getVenueIdFromPermalink(r.perm);
-                            if (!vid) {
-                                warnings.push(`[${sheet}] ${t('urlNoVid')} (${t('rowLabel')} ${rowNum})`);
-                                return;
-                            }
-
-                            // 5. Nom vide ?
-                            if (!r.name || !r.name.toString().trim()) {
-                                warnings.push(`[${sheet}] ${t('nameEmpty')} (${t('rowLabel')} ${rowNum})`);
-                                // on garde quand même la ligne
-                            }
-
-                            // 6. Doublon dans le même onglet ?
-                            if (sheetPerms.has(vid)) {
-                                const firstRow = sheetPerms.get(vid);
-                                warnings.push(`[${sheet}] ${t('dupRow', firstRow, rowNum)}`);
-                                return;
-                            }
-                            sheetPerms.set(vid, rowNum);
-
-                            all.push({event:sheet, perm:r.perm, name:r.name, desc:r.desc,
-                                      valeurs: lireValeurs(cells, champsIdx)});
-                        });
-                    });
-
-                    if (!all.length) {
-                        // Rien de valide — on affiche quand même le rapport d'anomalies
-                        montrerGuide('guideFichier', 'guideFichierSuite');
-                        showValidationReport(warnings.length ? warnings : [t('noPoisLoaded')]);
-                        return;
-                    }
-                    poiData = all;
-                    recordFileLoaded(file.name);
-                    renderHistory();
-                    /* ⭐ LE BANDEAU DE LA FENETRE PORTE TOUT : le nom du classeur, la
-                       liste des onglets et le nombre de POI. Un seul endroit le dit,
-                       donc il n'y a plus deux comptes a garder d'accord. */
-                    ouvrirOverlay();
-                    majStrip(file.name, Array.from(new Set(poiData.map((p) => p.event))), all.length);
-                    showValidationReport(warnings);
+                    lireClasseur(file.name, ev.target.result);
                 } catch (err) {
                     /* ⚠️ UNE LECTURE QUI ECHOUE SE DIT, ET SE DIT LA OU L'ON REGARDE.
                        Un message pose dans un panneau que la carte fait disparaitre
                        ne serait lu par personne. */
                     ouvrirOverlay();
                     showValidationReport(['✖ ' + err.message]);
+                } finally {
+                    /* ⚠️ TOUJOURS, refus compris : sinon rechoisir le MÊME fichier,
+                       corrigé, ne déclenche pas `change`, et rien n'est relu. */
+                    fileInput.value = '';
                 }
-                fileInput.value = '';
             };
             reader.readAsArrayBuffer(file);
         });
+    }
+
+    /* ======================================================================
+       LA PASTILLE DE NOUVELLE VERSION — au plus une vérification par 24 h
+       ====================================================================== */
+    const VER_RE = /^\d+(\.\d+)*$/;
+    const MAJ_KEY = 'peu_maj', MAJ_DELAI = 864e5;
+
+    /* Segment par segment, en nombres : en chaînes, « 0.9 » passerait pour plus
+       récent que « 0.53.00 ». Un segment absent vaut zéro (0.52 = 0.52.00). */
+    function majCmp(a, b) {
+        const x = a.split('.').map(Number), y = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(x.length, y.length); i++) {
+            const d = (x[i] || 0) - (y[i] || 0);
+            if (d) return d;
+        }
+        return 0;
+    }
+
+    function montrerMaj(v) {
+        const p = document.getElementById('peu-sb-maj');
+        if (!p) return;
+        p.querySelector('span').textContent = t('majDispo', v);
+        p.hidden = false;
+    }
+
+    /**
+     * ⚠️ PAR GM_xmlhttpRequest, PAS PAR fetch : la politique de sécurité de WME
+     *    (connect-src) n'autorise pas GreasyFork depuis la page. Sans la
+     *    permission (script injecté à la main), la vérification se tait.
+     * ⚠️ Un 404 arrive AUSSI par onload : la page d'erreur ne se lit pas comme
+     *    un en-tête de script.
+     */
+    function verifierMaj() {
+        if (!VER_RE.test(PEU_VERSION) || typeof GM_xmlhttpRequest !== 'function') return;
+        let memo = null;
+        try { memo = JSON.parse(localStorage.getItem(MAJ_KEY) || 'null'); } catch (e) { /* rien de lisible */ }
+        if (memo && Date.now() - memo.t < MAJ_DELAI) {
+            if (memo.v && VER_RE.test(memo.v) && majCmp(PEU_VERSION, memo.v) < 0) montrerMaj(memo.v);
+            return;
+        }
+        const retenir = (v) => { try { localStorage.setItem(MAJ_KEY, JSON.stringify({ t: Date.now(), v: v })); } catch (e) { /* tant pis */ } };
+        GM_xmlhttpRequest({
+            method: 'GET', url: URL_META, timeout: 10000, nocache: true,
+            onload: (r) => {
+                if (r.status < 200 || r.status >= 300) { retenir(null); return; }
+                const m = (r.responseText || '').match(/^\/\/\s*@version\s+(\S+)/m);
+                const v = m && VER_RE.test(m[1]) ? m[1] : null;
+                retenir(v);
+                if (v && majCmp(PEU_VERSION, v) < 0) montrerMaj(v);
+            },
+            onerror: () => {}, ontimeout: () => {},
+        });
+    }
+
+    /** Le fichier dont l'aperçu est à l'écran — pour l'historique « appliqué ». */
+    let _fichierCourant = null;
+
+    /** L'environnement de la page (row, usa, il), s'il est dans l'adresse. */
+    function envDeLaPage() {
+        try { return new URL(location.href).searchParams.get('env'); } catch (e) { return null; }
+    }
+
+    /** Le libellé d'un champ, par sa clé. */
+    function libelleDuChamp(cle) {
+        const champ = CHAMPS.find(c => c.cle === cle);
+        return champ ? libelleChamp(champ, t) : cle;
+    }
+
+    /**
+     * LIT UN CLASSEUR : chaque onglet, chaque ligne, vingt règles.
+     *
+     * ⚠️ Toute ligne écartée se DIT dans le rapport d'anomalies : ni le tableau,
+     *    qui ne montre que ce qui est retenu, ni la carte ne la montreraient.
+     */
+    function lireClasseur(nomFichier, donnees) {
+        /* Le référentiel des catégories vient de l'éditeur, dans SA langue.
+           Un échec laisse la table vide : les catégories seront alors
+           refusées et signalées, jamais posées à l'aveugle. */
+        try { chargerCategories(obtenirSdk()); } catch (e) { /* signalé à la ligne */ }
+        const wb = XLSX.read(new Uint8Array(donnees), {type:'array'});
+        const all = [];
+        const warnings = [];
+        const envCourant = envDeLaPage();
+
+        wb.SheetNames.filter(n => n !== 'Config').forEach(sheet => {
+            const sh = wb.Sheets[sheet];
+            // Les colonnes se lisent par leur EN-TÊTE, avec repli sur les
+            // positions A/B/C : l'ordre des colonnes cesse d'être un contrat
+            // tacite, et une colonne ajoutée à droite ne décale plus rien.
+            const rows = XLSX.utils.sheet_to_json(sh, {header:1, defval:''});
+            const plan = mapColumns(rows[0]);
+            if (!plan.usable) {
+                warnings.push(`[${sheet}] ${t(plan.conflit ? 'sheetHeaderConflit' : 'sheetHeaderErr')}`);
+                return;
+            }
+            if (plan.byPosition) warnings.push(`[${sheet}] ${t('sheetHeaderFallback')}`);
+            colonnesEnDouble(rows[0]).forEach(d => warnings.push(`[${sheet}] `
+                + t('colonneDoublon', libelleDuChamp(d.cle), d.colonnes.map(lettreDeColonne).join(', '))));
+            // Le numéro de ligne affiché est celui du tableur, même si la
+            // feuille ne commence pas en A1 : sans cela, l'anomalie renvoie
+            // à une ligne que personne ne retrouve.
+            const premiere = (XLSX.utils.decode_range(sh['!ref'] || 'A1:C1').s.r || 0) + 1;
+            const champsIdx = mapChamps(rows[0], plan.byPosition);
+            const sheetPerms = new Map();
+            rows.slice(1).forEach((cells, idx) => {
+                const rowNum = premiere + 1 + idx;
+                const valeur = (i) => {
+                    const v = cells[i];
+                    return v === undefined || v === null ? '' : v;
+                };
+                /* ⚠️ EN TEXTE, SANS ESPACE AUTOUR : un nom lu brut gardait son
+                   espace final — posé tel quel — et un nombre ne se comparait
+                   jamais égal au texte du lieu. */
+                const r = {
+                    perm: String(valeur(plan.columns.perm)).trim(),
+                    name: String(valeur(plan.columns.name)).trim(),
+                    desc: String(valeur(plan.columns.desc)).trim()
+                };
+                if (!r.perm) return; // ligne vide ignorée silencieusement
+
+                // 1. URL syntaxiquement valide ?
+                let parsedUrl;
+                try { parsedUrl = new URL(r.perm); } catch {
+                    warnings.push(`[${sheet}] ${t('urlInvalid')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+
+                // 2. Domaine et chemin WME valides ?
+                const validHost = ['www.waze.com', 'waze.com', 'beta.waze.com'].includes(parsedUrl.hostname);
+                const validPath = parsedUrl.pathname.includes('/editor');
+                if (!validHost || !validPath) {
+                    warnings.push(`[${sheet}] ${t('urlBadHost')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+
+                // 3. Paramètres obligatoires présents et cohérents ?
+                const params   = parsedUrl.searchParams;
+                const lat      = parseFloat(params.get('lat'));
+                const lon      = parseFloat(params.get('lon'));
+                const zoom     = params.get('zoomLevel');
+                const venues   = params.get('venues');
+
+                if (!params.get('env')) {
+                    warnings.push(`[${sheet}] ${t('urlNoEnv')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+                /* Gardée, mais dite : un lieu d'un autre serveur ne sera pas
+                   trouvé, et « introuvable » n'en donnerait pas la cause. */
+                if (envCourant && params.get('env') !== envCourant) {
+                    warnings.push(`[${sheet}] ${t('urlAutreEnv', params.get('env'), envCourant)} (${t('rowLabel')} ${rowNum})`);
+                }
+                if (isNaN(lat) || lat < -90 || lat > 90) {
+                    warnings.push(`[${sheet}] ${t('urlBadLat')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+                if (isNaN(lon) || lon < -180 || lon > 180) {
+                    warnings.push(`[${sheet}] ${t('urlBadLon')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+                if (!zoom || isNaN(parseInt(zoom))) {
+                    warnings.push(`[${sheet}] ${t('urlBadZoom')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+                if (!venues) {
+                    warnings.push(`[${sheet}] ${t('urlNoVenues')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+                if (venues.indexOf(',') !== -1) {
+                    warnings.push(`[${sheet}] ${t('urlPlusieursLieux')} (${t('rowLabel')} ${rowNum})`);
+                }
+
+                // 4. Extraire l'ID du venue
+                const vid = getVenueIdFromPermalink(r.perm);
+                if (!vid) {
+                    warnings.push(`[${sheet}] ${t('urlNoVid')} (${t('rowLabel')} ${rowNum})`);
+                    return;
+                }
+
+                // 5. Nom vide ?
+                if (!r.name) {
+                    warnings.push(`[${sheet}] ${t('nameEmpty')} (${t('rowLabel')} ${rowNum})`);
+                    // on garde quand même la ligne
+                }
+
+                // 6. Doublon dans le même onglet ?
+                if (sheetPerms.has(vid)) {
+                    const firstRow = sheetPerms.get(vid);
+                    warnings.push(`[${sheet}] ${t('dupRow', firstRow, rowNum)}`);
+                    return;
+                }
+                sheetPerms.set(vid, rowNum);
+
+                all.push({event:sheet, perm:r.perm, name:r.name, desc:r.desc,
+                          valeurs: lireValeurs(cells, champsIdx)});
+            });
+        });
+
+        if (!all.length) {
+            // Rien de valide — on affiche quand même le rapport d'anomalies
+            ouvrirOverlay();
+            montrerGuide('guideFichier', 'guideFichierSuite');
+            showValidationReport(warnings.length ? warnings : [t('noPoisLoaded')]);
+            return;
+        }
+        poiData = all;
+        _fichierCourant = nomFichier;
+        recordFileLoaded(nomFichier);
+        _rafraichirHistorique();
+        /* ⭐ LE BANDEAU DE LA FENETRE PORTE TOUT : le nom du classeur, la
+           liste des onglets et le nombre de POI. Un seul endroit le dit,
+           donc il n'y a plus deux comptes a garder d'accord.
+           ⚠️ Les anomalies d'abord : le balayage qui suit les affiche. */
+        ouvrirOverlay();
+        showValidationReport(warnings);
+        majStrip(nomFichier, Array.from(new Set(poiData.map((p) => p.event))), all.length);
     }
 
     /* ======================================================================
@@ -2590,7 +3718,7 @@
            ⚠️ CE N'EST PAS UN RACCOURCI, C'EST LA SUITE DU GESTE : on a choisi un
               classeur pour le regarder. Le balayage qui suit est interruptible,
               et le menu reste la pour changer d'onglet. */
-        if (aDesOnglets) ouvrirApercu(onglets[0]);
+        if (aDesOnglets) ouvrirApercu(onglets[0]).catch(signalerErreur);
     }
 
     /** Le corps de la fenetre, vide. */
@@ -2600,6 +3728,97 @@
         corps.innerHTML = '';
 
         return corps;
+    }
+
+    /** Les anomalies du dernier classeur lu. Elles survivent au rendu du tableau. */
+    let _anomalies = [];
+
+    /**
+     * LE RAPPORT D'ANOMALIES — dans la FENETRE, pas dans le panneau.
+     *
+     * ⭐ IL DIT CE QUI N'EST PAS ENTRE. Une ligne ecartee du classeur ne se
+     *    voit nulle part ailleurs : ni dans le tableau, qui ne montre que ce
+     *    qui est retenu, ni sur la carte. Sans ce rapport, le fichier parait
+     *    complet et il ne l'est pas.
+     *
+     * ⚠️⚠️ IL VIVAIT DANS initScript, hors de portée du dépôt de fichier : lâcher
+     *    un fichier qui n'est pas un classeur levait une ReferenceError, et rien
+     *    ne s'affichait. Et le tableau l'effaçait en se rendant (audit du
+     *    25/09/2026) : il est désormais redessiné à chaque rendu.
+     */
+    function showValidationReport(warnings) {
+        _anomalies = (warnings || []).slice();
+        const ov = document.getElementById('peu-overlay');
+        const corps = ov ? ov.querySelector('#peu-body') : null;
+        if (corps) rendreAnomalies(corps);
+    }
+
+    /** Le compte reste visible ; la liste se replie quand elle est longue. */
+    function rendreAnomalies(corps) {
+        const vieux = corps.querySelector('[data-rapport]');
+        if (vieux) vieux.remove();
+        if (!_anomalies.length) return;
+        const bloc = document.createElement('details');
+        bloc.className = 'peu-alert peu-alert-warn';
+        bloc.setAttribute('data-rapport', '');
+        bloc.open = _anomalies.length <= 3;
+        const resume = document.createElement('summary');
+        resume.className = 'peu-error-title';
+        resume.textContent = t('anomalies', _anomalies.length);
+        bloc.appendChild(resume);
+        const ul = document.createElement('ul');
+        _anomalies.forEach(w => {
+            const li = document.createElement('li');
+            li.textContent = w;
+            ul.appendChild(li);
+        });
+        bloc.appendChild(ul);
+        corps.prepend(bloc);
+    }
+
+    /** Un message qui passe, en tête du corps : un refus, une consigne. */
+    function messagePassager(texte) {
+        const ov = document.getElementById('peu-overlay');
+        const corps = ov ? ov.querySelector('#peu-body') : null;
+        if (!corps) return;
+        const div = document.createElement('div');
+        div.className = 'peu-alert peu-alert-warn';
+        div.setAttribute('role', 'status');
+        div.textContent = texte;
+        corps.prepend(div);
+        setTimeout(() => div.remove(), 6000);
+    }
+
+    /** Une erreur imprévue se DIT, dans la fenêtre — jamais seulement en console. */
+    function signalerErreur(e) {
+        console.error('[WPEU]', e);
+        occuper(false);
+        ouvrirOverlay();
+        messagePassager('✖ ' + ((e && e.message) || String(e)));
+    }
+
+    /**
+     * UN PRÉCHARGEMENT OU UNE POSE EST EN COURS.
+     *
+     * ⭐⭐⭐ RIEN NE L'EMPÊCHAIT DE RECOMMENCER. Après la pose, le bouton se
+     *    réactivait sur les mêmes cases, toujours cochées : un clic de plus
+     *    posait tout une seconde fois. Et pendant la pose, le menu d'onglet, le
+     *    bouton de fichier et le dépôt restaient actifs — le bilan se rattachait
+     *    alors au mauvais événement (audit du 25/09/2026).
+     */
+    let _occupe = false;
+    function occuper(oui) {
+        _occupe = oui;
+        const ov = document.getElementById('peu-overlay');
+        if (!ov) return;
+        ov.classList.toggle('peu-occupe', oui);
+        ['#peu-select-onglet', '#peu-btn-fichier'].forEach((sel) => {
+            const el = ov.querySelector(sel);
+            if (el) el.disabled = oui;
+        });
+        const table = ov.querySelector('#peu-body .peu-table');
+        if (table) table.inert = oui;
+        majPied();
     }
 
     /**
@@ -2627,7 +3846,8 @@
             + (extra || '');
 
         const zone = corps.querySelector('#peu-dropzone');
-        if (zone) zone.addEventListener('click', () => { if (_peuFileInput) _peuFileInput.click(); });
+        if (zone) zone.addEventListener('click', () => { if (_peuFileInput && !_occupe) _peuFileInput.click(); });
+        rendreAnomalies(corps);
         majPied();
     }
 
@@ -2678,6 +3898,10 @@
             const fichier = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
             if (!fichier || !_peuFileInput) return;
 
+            /* ⚠️ PAS DE NOUVEAU CLASSEUR PENDANT UN BALAYAGE OU UNE POSE : le bilan
+               se rattacherait à un aperçu qui n'est plus à l'écran. */
+            if (_occupe) { messagePassager(t('occupeDepot')); return; }
+
             /* ⚠️ ON REFUSE ICI CE QUI N'EST PAS UN CLASSEUR, et on le DIT : laisser
                le lecteur s'en charger donnerait une erreur de format la ou une
                phrase suffit. */
@@ -2706,13 +3930,20 @@
         const btn = ov.querySelector('#peu-btn-appliquer');
         const exp = ov.querySelector('#peu-btn-export');
         const aide = ov.querySelector('#peu-footer-help');
-        const cases = ov.querySelectorAll('#peu-body .peu-ligne .peu-checkbox:checked');
+        const cases = [...ov.querySelectorAll('#peu-body .peu-ligne .peu-checkbox:checked')];
         const nb = cases.length;
+        /* ⚠️ UNE LIGNE COCHÉE PUIS MASQUÉE PAR LE FILTRE EST POSÉE QUAND MÊME :
+           le compte du bouton est juste, mais il doit dire qu'une partie ne se
+           voit plus. */
+        const masquees = cases.filter((cb) => {
+            const tr = cb.closest('.peu-ligne');
+            return tr && tr.style.display === 'none';
+        }).length;
 
         btn.textContent = libelleAppliquer(nb);
-        btn.disabled = nb === 0;
+        btn.disabled = nb === 0 || _occupe;
         if (exp) exp.hidden = !_apercu || !_apercu.resultats;
-        if (aide) aide.textContent = t(_apercu ? 'footerHelp' : 'footerHelpVide');
+        if (aide) aide.textContent = masquees ? t('footerMasquees', masquees) : t(_apercu ? 'footerHelp' : 'footerHelpVide');
     }
 
     /**
@@ -2731,20 +3962,29 @@
 
             return cb && cb.checked && !cb.disabled;
         }).map((tr) => {
-            const p = _apercu.pois[Number(tr.dataset.idx)];
+            const idx = Number(tr.dataset.idx);
+            const p = _apercu.pois[idx];
+            const vue = _apercu.vues ? _apercu.vues[idx] : null;
 
             return {
+                idx: idx,
                 vid: getVenueIdFromPermalink(p.perm),
                 perm: p.perm,
-                nom: tr.querySelector('[data-nom]').value,
-                desc: tr.querySelector('[data-desc]').value,
+                nom: tr.querySelector('[data-nom]').value.trim(),
+                desc: tr.querySelector('[data-desc]').value.trim(),
                 valeurs: p.valeurs,
+                verrou: vue ? vue.verrou : 'ok',
             };
         });
     }
 
+    // ==== banc:poser ====
+    // Extrait par tools/banc-application.mjs. Tout ce qui touche WME passe par
+    // `env` : le banc y met des bouchons qui REFUSENT ce qu'ils ne connaissent
+    // pas, l'éditeur y met W.model et le SDK (`environnementDePose`).
+
     /**
-     * POSE UN LIEU — extrait tel quel de l'ancienne boucle, aux chaines pres.
+     * POSE UN LIEU.
      *
      * ⚠️⚠️ ON RELIT APRES AVOIR ECRIT, ET C'EST OBLIGATOIRE : le SDK n'eleve
      *    aucune erreur devant un champ qu'il ne connait pas, ni devant une
@@ -2756,11 +3996,26 @@
      *    SDK n'est pas appele, et l'ecran annonce « applique avec succes » sur un
      *    lieu que personne n'a touche. Le compte ci-dessous le refuse.
      */
-    async function poserUnLieu(item) {
-        const UpdateObject = require('Waze/Action/UpdateObject');
-        const venue = await centerAndLoad(item.perm, item.vid, 3000);
-        if (!venue) {
-            return { echec: true, resultat: { oldName: '', newName: item.nom, oldDesc: '', newDesc: item.desc, status: 'timeout' } };
+    /**
+     * UN LIEU EST-IL CHARGÉ ?
+     *
+     * ⚠️ PAS « A-T-IL UN NOM ». Le test exigeait un nom : un lieu SANS nom était
+     *    déclaré introuvable, sa ligne figée, et quatre secondes perdues — alors
+     *    que donner un nom à un lieu qui n'en a pas est justement l'usage de la
+     *    colonne Nom (audit du 25/09/2026).
+     */
+    function lieuPret(v) {
+        return !!(v && v.attributes);
+    }
+
+    async function poserUnLieu(item, env) {
+        /* ⭐ La carte ne bouge que si le lieu n'est pas déjà en mémoire : le
+           préchargement vient presque toujours de le charger. */
+        let venue = env.lieuCharge(item.vid);
+        if (!lieuPret(venue)) venue = await env.charger(item.perm, item.vid);
+        if (!lieuPret(venue)) {
+            return { echec: true, resultat: { oldName: '', newName: item.nom, oldDesc: '', newDesc: item.desc,
+                status: 'timeout', poses: [], manques: [] } };
         }
 
         const oldName = venue.attributes.name || '';
@@ -2768,45 +4023,103 @@
         /* ⚠️ Les noms alternatifs viennent du classeur s'il en porte, sinon on
            REPASSE ceux du lieu tels quels : ne jamais les perdre au passage. */
         const aPoser = (item.valeurs && item.valeurs.aPoser) || {};
-        W.model.actionManager.add(new UpdateObject(venue, {
+        env.ecrireHerite(venue, {
             id: venue.attributes.id,
             name: item.nom,
             description: item.desc,
             aliases: aPoser.aliases || venue.attributes.aliases || [],
-        }));
+        });
 
-        let poseSdk = null;
         const { maj, ignores } = construireMaj(aPoser);
-
-        const attendus = Object.keys(aPoser).filter((c) => !CIBLES_HERITEES.includes(c));
-        if (attendus.length && !Object.keys(maj).length) {
-            poseSdk = { identiques: [], differents: attendus };
-        }
-
+        let erreurSdk = null;
         if (Object.keys(maj).length) {
-            try {
-                const sdk = obtenirSdk();
-                sdk.DataModel.Venues.updateVenue(Object.assign({ venueId: item.vid }, maj));
-                const relu = W.model.venues.getObjectById(item.vid);
-                poseSdk = comparerAuLieu(relu ? relu.attributes : {}, aPoser);
-            } catch (e) {
-                poseSdk = { identiques: [], differents: Object.keys(maj), erreur: e.message };
-            }
+            try { env.ecrireSdk(item.vid, maj); } catch (e) { erreurSdk = e.message; }
         }
-        if (ignores.length) {
-            poseSdk = poseSdk || { identiques: [], differents: [] };
-            poseSdk.differents = poseSdk.differents.concat(ignores);
-        }
+
+        /* ⭐⭐⭐ LA RELECTURE FAIT FOI, POUR TOUT — le nom et la description compris.
+           Ils n'étaient pas relus : « appliqué » voulait dire « UpdateObject n'a
+           pas levé », y compris sur un lieu verrouillé au-dessus du rang, dont
+           rien ne dit encore ce que WME fait de la modification.
+           ⚠️ Un champ à poser jamais envoyé (hors liste blanche) reste un MANQUE :
+              la relecture le trouve absent, et `ignores` le rappelle. */
+        const relu = env.relire(item.vid) || {};
+        const manques = [];
+        if ((relu.name || '') !== item.nom) manques.push('name');
+        if ((relu.description || '') !== item.desc) manques.push('description');
+        const ecarts = comparerAuLieu(relu, aPoser);
+        ecarts.differents.concat(ignores).forEach((c) => { if (!manques.includes(c)) manques.push(c); });
 
         return {
             echec: false,
             resultat: {
                 oldName: oldName, newName: item.nom,
                 oldDesc: oldDesc, newDesc: item.desc,
-                status: poseSdk && poseSdk.differents.length ? 'partial' : 'applied',
-                poses: poseSdk ? poseSdk.identiques : [],
-                manques: poseSdk ? poseSdk.differents : [],
+                status: manques.length ? 'partial' : 'applied',
+                poses: ecarts.identiques,
+                manques: manques,
+                erreur: erreurSdk,
             },
+        };
+    }
+
+    /**
+     * POSE TOUTES LES LIGNES — UNE EXCEPTION N'EN ARRÊTE AUCUNE.
+     *
+     * ⚠️⚠️ SANS CE try, UNE EXCEPTION AU LIEU k ARRÊTAIT LA BOUCLE : k-1
+     *    modifications restaient dans la pile de WME, la barre restait figée, et
+     *    aucun bilan ne s'affichait. Cause possible, non mesurée : un lieu
+     *    verrouillé au-dessus du rang que WME refuse (audit du 25/09/2026).
+     *
+     * @return {{resultats: Object[], aReprendre: Object[]}} `aReprendre` : les
+     *    lignes à relancer — introuvables ou en erreur.
+     */
+    async function poserLesLignes(items, env, surAvance) {
+        const resultats = [], aReprendre = [];
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            let r;
+            try {
+                r = await poserUnLieu(it, env);
+            } catch (e) {
+                r = { echec: true, resultat: { oldName: '', newName: it.nom, oldDesc: '', newDesc: it.desc,
+                    status: 'erreur', erreur: (e && e.message) || String(e), poses: [], manques: [] } };
+            }
+            r.resultat.vid = it.vid;
+            r.resultat.perm = it.perm;
+            r.resultat.verrou = it.verrou || 'ok';
+            resultats.push(r.resultat);
+            if (r.echec) aReprendre.push(it);
+            if (surAvance) surAvance(i + 1, items.length);
+        }
+        return { resultats: resultats, aReprendre: aReprendre };
+    }
+
+    /**
+     * LA CASE D'UNE LIGNE APRÈS UNE RETOUCHE DANS L'APERÇU.
+     *
+     * ⭐⭐⭐⭐ UNE RETOUCHE ÉTAIT JETÉE EN SILENCE. La case n'était décidée qu'au
+     *    premier rendu : on corrigeait le nom d'une ligne « = », on cliquait
+     *    Appliquer, la correction n'était pas posée — et l'écran continuait de
+     *    l'afficher. La 0.47 re-cochait ; la 0.52 l'avait perdu à l'extraction.
+     *
+     * ⚠️ UNE LIGNE QUI RETIRE N'EST JAMAIS TOUCHÉE : ni cochée seule, ni
+     *    décochée si l'éditeur l'a cochée — c'est son geste, pas le nôtre.
+     */
+    function caseApresRetouche(coche, vue) {
+        if (vue.pertes) return coche;
+        return cocherDOffice(vue.nomChange, vue.descChange, vue.champsDiff, 0, vue.nomVide);
+    }
+    // ==== /banc:poser ====
+
+    /** Ce que la pose demande a WME, dans l'editeur. */
+    function environnementDePose() {
+        const UpdateObject = require('Waze/Action/UpdateObject');
+        return {
+            lieuCharge: (vid) => W.model.venues.getObjectById(vid),
+            charger: (perm, vid) => centerAndLoad(perm, vid, 3000),
+            ecrireHerite: (venue, champs) => W.model.actionManager.add(new UpdateObject(venue, champs)),
+            ecrireSdk: (vid, maj) => obtenirSdk().DataModel.Venues.updateVenue(Object.assign({ venueId: vid }, maj)),
+            relire: (vid) => { const v = W.model.venues.getObjectById(vid); return v ? v.attributes : null; },
         };
     }
 
@@ -2820,6 +4133,7 @@
     function poserProgression(corps, libelle, total, surAnnulation, enTete) {
         const div = document.createElement('div');
         div.className = 'peu-prog';
+        div.setAttribute('role', 'status');
         div.innerHTML = '<div class="peu-prog-t">'
             + '<span class="peu-progress-label">' + esc(libelle) + '</span>'
             + '<span class="peu-prog-pct">0 %</span></div>'
@@ -2849,36 +4163,54 @@
      * OUVRE L'APERCU D'UN ONGLET : precharge, cadre, puis montre le tableau.
      */
     async function ouvrirApercu(eventName) {
+        if (_occupe) return;
         const pois = poiData.filter((p) => p.event === eventName);
         if (!pois.length) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
 
         /* ⚠️⚠️ LE CALQUE « LIEUX » DOIT ETRE ALLUME, SANS QUOI RIEN N'EXISTE. WME ne
            charge pas les lieux d'un calque eteint : le prechargement ne trouverait
            AUCUN POI et l'apercu annoncerait que tout est introuvable — un diagnostic
-           faux, sur un fichier juste. On l'allume donc, et l'on attend que WME
-           serve les lieux avant de balayer. */
+           faux, sur un fichier juste. On l'allume donc, on attend que WME serve
+           les lieux, et l'on RELIT : un clic qui n'a rien allumé ne vaut pas un
+           calque allumé. */
         const calque = W.map.getLayersByName('venues')[0];
         if (calque && !calque.getVisibility()) {
             const bascule = document.querySelector('#layer-switcher-group_places');
-            if (!bascule) { alert(t('layerOffMsg')); return; }
-            bascule.click();
-            await new Promise((r) => setTimeout(r, 1500));
+            if (bascule) {
+                bascule.click();
+                await new Promise((r) => setTimeout(r, 1500));
+            }
+            if (!bascule || !calque.getVisibility()) {
+                ouvrirOverlay();
+                montrerGuide('guideOnglet', 'guideOngletSuite');
+                messagePassager(t('layerOffMsg'));
+                return;
+            }
         }
 
         ouvrirOverlay();
-        const corps = corpsFenetre();
+        occuper(true);
+        let venueMap = null;
         const annule = { cancelled: false };
-        const prog = poserProgression(corps, t('loadingPois', 0, pois.length), pois.length,
-            () => { annule.cancelled = true; });
-
-        const venueMap = await preloadVenues(pois, (n, total) => prog.avance(n, total), annule);
-        prog.retirer();
+        try {
+            const corps = corpsFenetre();
+            rendreAnomalies(corps);
+            const prog = poserProgression(corps, t('loadingPois', 0, pois.length), pois.length,
+                () => { annule.cancelled = true; });
+            venueMap = await preloadVenues(pois, (n, total) => {
+                prog.avance(n, total);
+                prog.libelle(t('loadingPois', n, total));
+            }, annule);
+            prog.retirer();
+        } finally {
+            occuper(false);
+        }
         if (annule.cancelled) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
 
         // ⭐ ON RESTE SUR LE PERIMETRE qu'on vient de parcourir.
         cadrerSurLesLieux(venueMap);
 
-        _apercu = { eventName: eventName, pois: pois, venueMap: venueMap, resultats: null };
+        _apercu = { eventName: eventName, pois: pois, venueMap: venueMap, resultats: null, vues: null };
         /* ⚠️ LE MENU DIT CE QUI EST OUVERT. Ouvert par un autre chemin que lui,
            il afficherait autre chose que ce que le tableau montre. */
         const menu = document.getElementById('peu-select-onglet');
@@ -2886,21 +4218,31 @@
         rendreTableau();
     }
 
-    /** Ce qu'il y a a dire d'une ligne, avant de la rendre. */
-    function vueDeLaLigne(p, idx, venueMap) {
+    /**
+     * Ce qu'il y a a dire d'une ligne, avant de la rendre.
+     *
+     * @param saisie `{nom, desc}` retouchés dans l'aperçu ; sinon, ceux du classeur.
+     *    ⚠️ Le lieu est relu VIVANT : après une pose, il porte déjà les valeurs
+     *    posées, et une nouvelle retouche se compare à elles.
+     */
+    function vueDeLaLigne(p, idx, venueMap, saisie) {
         const vid = getVenueIdFromPermalink(p.perm);
         const venue = venueMap[vid];
         const attributs = venue ? venue.attributes : null;
         const aPoser = (p.valeurs && p.valeurs.aPoser) || null;
         const verrou = venue ? getLockStatus(venue) : 'ok';
+        const nom = saisie ? saisie.nom : p.name;
+        const desc = saisie ? saisie.desc : p.desc;
+        const nomChange = !!attributs && nom !== (attributs.name || '');
 
         return {
             idx: idx,
-            nom: p.name, desc: p.desc,
+            nom: nom, desc: desc,
             ancienNom: attributs ? (attributs.name || '') : '',
             ancienDesc: attributs ? (attributs.description || '') : '',
-            nomChange: !!attributs && p.name !== (attributs.name || ''),
-            descChange: !!attributs && p.desc !== (attributs.description || ''),
+            nomChange: nomChange,
+            nomVide: nomChange && nom === '',
+            descChange: !!attributs && desc !== (attributs.description || ''),
             charge: !!venue,
             verrou: verrou,
             niveau: venue && venue.attributes ? (venue.attributes.lockRank || 0) + 1 : 0,
@@ -2913,6 +4255,7 @@
     function rendreTableau() {
         const corps = corpsFenetre();
         const vues = _apercu.pois.map((p, i) => vueDeLaLigne(p, i, _apercu.venueMap));
+        _apercu.vues = vues;
 
         const barre = document.createElement('div');
         barre.className = 'peu-toolbar';
@@ -2946,16 +4289,38 @@
 
         /* ⚠️ LE COCHAGE EST DECIDE PAR LA REGLE, PAS PAR LE RENDU : une ligne qui
            RETIRE quelque chose ne se coche jamais d'office. */
-        [...tbody.querySelectorAll('.peu-ligne:not(.peu-comp)')].forEach((tr, i) => {
-            const v = vues[i];
+        [...tbody.querySelectorAll('.peu-ligne:not(.peu-comp)')].forEach((tr) => {
+            const v = vues[Number(tr.dataset.idx)];
             const cb = tr.querySelector('.peu-checkbox');
             if (cb && !cb.disabled) {
-                cb.checked = cocherDOffice(v.nomChange, v.descChange, v.champsDiff, v.pertes);
+                cb.checked = cocherDOffice(v.nomChange, v.descChange, v.champsDiff, v.pertes, v.nomVide);
             }
         });
 
         brancherTableau(table, barre, vues);
+        rendreAnomalies(corps);
         majPied();
+    }
+
+    /** Une ligne redessinée sur place après une retouche ou une pose — sans rien reconstruire. */
+    function majLigne(tr, v) {
+        const etat = etatDeLaLigne(v);
+        const b = badgeDeLigne(etat, v);
+        tr.className = 'peu-ligne peu-row-' + etat;
+        const badge = tr.querySelector('.peu-badge');
+        if (badge) { badge.className = 'peu-badge ' + b.classe; badge.textContent = b.texte; badge.title = b.titre; }
+        const comp = tr.nextElementSibling;
+        if (comp && comp.classList.contains('peu-comp')) comp.className = 'peu-ligne peu-comp peu-row-' + etat;
+        const vieux = tr.querySelectorAll('.peu-cell-old');
+        if (vieux[0]) vieux[0].classList.toggle('changed', v.nomChange);
+        if (vieux[1]) vieux[1].classList.toggle('changed', v.descChange);
+        const efface = (el, oui, cle) => {
+            if (!el) return;
+            el.classList.toggle('peu-efface', oui);
+            el.placeholder = oui ? t(cle) : '';
+        };
+        efface(tr.querySelector('[data-nom]'), v.nomVide, 'nomEfface');
+        efface(tr.querySelector('[data-desc]'), v.descChange && v.desc === '', 'descEffacee');
     }
 
     /** Branche les gestes du tableau : cases, filtre, recentrage, edition. */
@@ -2983,6 +4348,59 @@
             centerAndLoad(p.perm, getVenueIdFromPermalink(p.perm), 1500);
         });
 
+        /* ⭐⭐⭐⭐ UNE RETOUCHE RE-DÉCIDE LA CASE, LE BADGE ET LE FILTRE — voir
+           `caseApresRetouche`. Sans cet écouteur, corriger un nom ne changeait
+           rien à ce qui serait posé, et l'écran continuait de l'afficher. */
+        table.addEventListener('input', (e) => {
+            if (!e.target.matches('[data-nom], [data-desc]')) return;
+            const tr = e.target.closest('.peu-ligne');
+            const idx = Number(tr.dataset.idx);
+            const v = vueDeLaLigne(_apercu.pois[idx], idx, _apercu.venueMap, {
+                nom: tr.querySelector('[data-nom]').value.trim(),
+                desc: tr.querySelector('[data-desc]').value.trim(),
+            });
+            vues[idx] = v;
+            majLigne(tr, v);
+            const cb = tr.querySelector('.peu-checkbox');
+            if (cb && !cb.disabled) cb.checked = caseApresRetouche(cb.checked, v);
+            majPied();
+        });
+
+        /* LE TRI PROMIS PAR L'EN-TÊTE. Chaque ligne voyage avec la ligne de ses
+           champs du lot D2 : détachées, on lirait les champs d'un lieu sous le
+           nom d'un autre. */
+        let tri = null;
+        const collation = new Intl.Collator(localeDuScript(), { sensitivity: 'base', numeric: true });
+        table.querySelectorAll('th[data-tri]').forEach((th) => {
+            const trier = () => {
+                const col = th.dataset.tri;
+                const sens = tri && tri.col === col && tri.sens === 1 ? -1 : 1;
+                tri = { col: col, sens: sens };
+                const tbody = table.querySelector('tbody');
+                const paires = [...tbody.querySelectorAll('.peu-ligne:not(.peu-comp)')].map((tr) => {
+                    const suivante = tr.nextElementSibling;
+                    return {
+                        tr: tr,
+                        comp: suivante && suivante.classList.contains('peu-comp') ? suivante : null,
+                        cle: tr.querySelector(col === 'nom' ? '[data-nom]' : '[data-desc]').value,
+                    };
+                });
+                paires.sort((a, b) => sens * collation.compare(a.cle, b.cle));
+                paires.forEach((p) => { tbody.appendChild(p.tr); if (p.comp) tbody.appendChild(p.comp); });
+                table.querySelectorAll('th[data-tri]').forEach((h) => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                    h.setAttribute('aria-sort', 'none');
+                });
+                th.classList.add(sens === 1 ? 'sort-asc' : 'sort-desc');
+                th.setAttribute('aria-sort', sens === 1 ? 'ascending' : 'descending');
+                th.querySelector('.peu-sort-icon').textContent = sens === 1 ? '▲' : '▼';
+            };
+            th.addEventListener('click', trier);
+            th.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trier(); }
+            });
+        });
+
         const filtre = barre.querySelector('[data-filtre]');
         const btnEcarts = barre.querySelector('[data-ecarts]');
         let ecartsSeuls = false;
@@ -2990,8 +4408,8 @@
         const appliquerFiltres = () => {
             const mot = filtre.value.trim().toLowerCase();
             let vus = 0;
-            table.querySelectorAll('tbody .peu-ligne:not(.peu-comp)').forEach((tr, i) => {
-                const v = vues[i];
+            table.querySelectorAll('tbody .peu-ligne:not(.peu-comp)').forEach((tr) => {
+                const v = vues[Number(tr.dataset.idx)];
                 const texte = (tr.querySelector('[data-nom]').value + ' ' + tr.querySelector('[data-desc]').value).toLowerCase();
                 const garde = (!mot || texte.includes(mot))
                     && (!ecartsSeuls || v.champsDiff > 0 || v.nomChange || v.descChange || v.pertes > 0);
@@ -3001,13 +4419,17 @@
                 if (garde) vus++;
             });
             barre.querySelector('.peu-search-count').textContent = t('poiCount', vus);
+            majPied();
         };
 
         filtre.addEventListener('input', appliquerFiltres);
+        btnEcarts.setAttribute('aria-pressed', 'false');
         btnEcarts.addEventListener('click', () => {
             ecartsSeuls = !ecartsSeuls;
-            btnEcarts.classList.toggle('peu-btn-primary', ecartsSeuls);
-            btnEcarts.classList.toggle('peu-btn-neutral', !ecartsSeuls);
+            /* ⚠️ UN SEUL BOUTON PLEIN PAR ÉCRAN (charte) : Appliquer. Le filtre
+               actif se marque d'un contour, il ne devient pas plein. */
+            btnEcarts.classList.toggle('peu-btn-actif', ecartsSeuls);
+            btnEcarts.setAttribute('aria-pressed', String(ecartsSeuls));
             btnEcarts.textContent = t(ecartsSeuls ? 'btnDiffAll' : 'btnDiffActive');
             btnEcarts.title = t(ecartsSeuls ? 'tooltipDiffOff' : 'tooltipDiffOn');
             appliquerFiltres();
@@ -3023,31 +4445,62 @@
      *    WME ; c'est l'editeur qui enregistre, apres avoir relu.
      */
     async function appliquerLignes() {
+        if (_occupe || !_apercu) return;
+        /* ⚠️ L'APERÇU EST FIGÉ AU CLIC : le bilan et le rapport se rattachent à
+           celui-ci, même si l'écran en montrait un autre à la fin. */
+        const apercu = _apercu;
         const items = lignesCochees();
         if (!items.length) return;
 
         const ov = document.getElementById('peu-overlay');
-        const btn = ov.querySelector('#peu-btn-appliquer');
-        btn.disabled = true;
-
         const corps = ov.querySelector('#peu-body');
+        const avant = nbModifsEnAttente();
+        occuper(true);
         /* ⚠️ EN TETE DU CORPS : la liste peut etre longue, et une barre posee en
            bas d une zone defilante travaille hors de vue. */
         const prog = poserProgression(corps, t('applying', 0, items.length), items.length, null, true);
 
-        const resultats = [];
-        const echecs = [];
-        for (let i = 0; i < items.length; i++) {
-            const r = await poserUnLieu(items[i]);
-            resultats.push(r.resultat);
-            if (r.echec) echecs.push(items[i]);
-            prog.avance(i + 1);
+        let bilan = { resultats: [], aReprendre: [] };
+        let erreurGenerale = null;
+        try {
+            bilan = await poserLesLignes(items, environnementDePose(), (n, total) => {
+                prog.avance(n, total);
+                prog.libelle(t('applying', n, total));
+            });
+        } catch (e) {
+            /* Ce qui lève AVANT la boucle (le module d'écriture de WME absent) :
+               rien n'a été posé, et cela se dit. */
+            erreurGenerale = (e && e.message) || String(e);
+        } finally {
+            prog.retirer();
+            occuper(false);
         }
-        prog.retirer();
 
-        cadrerSurLesLieux(_apercu.venueMap);
-        _apercu.resultats = resultats;
-        montrerBilan(corps, resultats, echecs);
+        try { cadrerSurLesLieux(apercu.venueMap); } catch (e) { /* la carte reste où elle est */ }
+        apercu.resultats = bilan.resultats;
+
+        /* ⭐ UNE LIGNE POSÉE SE DÉCOCHE, ET LE DIT : recliquer ne repose que ce qui
+           reste coché — les lieux en échec, pour « Réessayer ». */
+        /* ⚠️ La ligne se relit sur le lieu VIVANT, qui porte désormais les
+           valeurs posées : une pose PARTIELLE montre alors ce qui reste à poser,
+           au lieu d'un ✔ qui mentirait. */
+        bilan.resultats.forEach((r, i) => {
+            if (r.status !== 'applied' && r.status !== 'partial') return;
+            const idx = items[i].idx;
+            const tr = ov.querySelector('#peu-body .peu-ligne[data-idx="' + idx + '"]');
+            if (!tr || _apercu !== apercu) return;
+            const cb = tr.querySelector('.peu-checkbox');
+            if (cb) cb.checked = false;
+            const v = vueDeLaLigne(apercu.pois[idx], idx, apercu.venueMap, { nom: items[i].nom, desc: items[i].desc });
+            v.posee = r.status === 'applied';
+            if (apercu.vues) apercu.vues[idx] = v;
+            majLigne(tr, v);
+        });
+        if (bilan.resultats.some((r) => r.status === 'applied' || r.status === 'partial') && _fichierCourant) {
+            recordFileApplied(_fichierCourant);
+            _rafraichirHistorique();
+        }
+        montrerBilan(corps, bilan, erreurGenerale, avant);
         majPied();
     }
 
@@ -3058,25 +4511,77 @@
      * ⚠️ « Applique » ne veut pas dire « enregistre » : la confusion coute une
      *    session de travail perdue, et elle ne se voit qu'au rechargement.
      */
-    function montrerBilan(corps, resultats, echecs) {
-        const poses = resultats.filter((r) => r.status === 'applied').length;
-        const partiels = resultats.filter((r) => r.status === 'partial').length;
+    function montrerBilan(corps, bilan, erreurGenerale, avant) {
+        const r = bilan.resultats;
+        const compte = (s) => r.filter((x) => x.status === s).length;
+        const poses = compte('applied'), partiels = compte('partial');
+        const echecs = r.filter((x) => x.status === 'timeout' || x.status === 'erreur');
+        const sae = r.filter((x) => x.verrou === 'sae' && (x.status === 'applied' || x.status === 'partial')).length;
+        const apres = nbModifsEnAttente();
+        /* ⚠️ LE CHIFFRE DIT CE QUE CETTE POSE A AJOUTÉ, et rien quand on ne le sait
+           pas : « 0 en attente » sur une erreur de lecture rassurait à tort, et
+           toute la pile de WME comptait comme si le script l'avait remplie. */
+        const ajoutees = avant !== null && apres !== null ? apres - avant : null;
+
+        const vieux = corps.querySelector('[data-bilan]');
+        if (vieux) vieux.remove();
         const div = document.createElement('div');
-        div.className = 'peu-alert ' + (echecs.length || partiels ? 'peu-alert-warn' : 'peu-alert-ok');
-        div.innerHTML = '<b>' + esc(t('successMsg', poses)) + '</b>'
-            + (partiels ? '<br>' + esc(t('bilanPartiel', partiels)) : '')
-            + (echecs.length ? '<br>' + esc(t('bilanEchec', echecs.length)) : '')
-            + '<br>' + esc(t('bilanNonEnregistre', nbModifsEnAttente()));
+        div.className = 'peu-alert ' + (echecs.length || partiels || erreurGenerale ? 'peu-alert-warn' : 'peu-alert-ok');
+        div.setAttribute('data-bilan', '');
+        div.setAttribute('role', 'status');
+        div.tabIndex = -1;
+        const ligne = (texte, gras) => {
+            const el = document.createElement('div');
+            if (gras) { const b = document.createElement('b'); b.textContent = texte; el.appendChild(b); } else el.textContent = texte;
+            div.appendChild(el);
+        };
+
+        if (erreurGenerale) ligne(t('bilanErreurGenerale', erreurGenerale), true);
+        ligne(t('successMsg', poses), true);
+        if (partiels) ligne(t('bilanPartiel', partiels));
+        if (sae) ligne(t('bilanSae', sae));
+        if (echecs.length) {
+            ligne(t('bilanEchec', echecs.length));
+            /* ⭐ LES LIEUX EN ÉCHEC SE NOMMENT, et se reprennent d'un clic : leurs
+               lignes sont restées cochées. */
+            const ul = document.createElement('ul');
+            echecs.forEach((x) => {
+                const li = document.createElement('li');
+                li.textContent = t('echecLigne', x.oldName || x.newName || x.vid,
+                    t(x.status === 'erreur' ? 'statusErreur' : 'statusTimeout'), x.erreur || '');
+                ul.appendChild(li);
+            });
+            div.appendChild(ul);
+            const reessayer = document.createElement('button');
+            reessayer.type = 'button';
+            reessayer.className = 'peu-btn peu-btn-neutral peu-btn-sm';
+            reessayer.textContent = t('btnRetry', echecs.length);
+            reessayer.addEventListener('click', () => { appliquerLignes().catch(signalerErreur); });
+            div.appendChild(reessayer);
+        }
+        ligne(ajoutees !== null ? t('bilanNonEnregistre', ajoutees) : t('bilanNonEnregistreSansCompte'), true);
         corps.prepend(div);
+        div.focus({ preventScroll: true });
     }
 
-    /** Ce que WME a en attente — le chiffre qui dit qu'il reste a enregistrer. */
+    /** Le nombre d'actions dans la pile de WME, ou `null` si on ne peut pas le lire. */
     function nbModifsEnAttente() {
-        try { return W.model.actionManager.getActions().length; } catch (e) { return 0; }
+        try {
+            const am = W.model.actionManager;
+            if (typeof am.unsavedActionsNum === 'function') return am.unsavedActionsNum();
+            return am.getActions().length;
+        } catch (e) { return null; }
     }
 
     let _peuInited = false;
-    function _peuInit() { if (_peuInited) return; _peuInited = true; initScript(); }
+    function _peuInit() {
+        if (_peuInited) return;
+        _peuInited = true;
+        W = pw.W;
+        OpenLayers = pw.OpenLayers;
+        require = pw.require;
+        initScript().catch((e) => console.error('[WPEU] démarrage', e));
+    }
 
     /* ⚠️⚠️ `typeof` ET NON `W?.` : l’optional chaining protège d’un objet NUL,
        pas d’une variable JAMAIS DÉCLARÉE. Si le script s’exécute avant que WME
@@ -3084,7 +4589,7 @@
        que la moindre ligne d’interface soit construite. Le script meurt alors
        en entier, sans rien poser : ni feuille de style, ni bouton, ni onglet.
        C’est exactement le symptôme d’un script « qui n’a pas chargé ». */
-    const wmePret = () => typeof W !== 'undefined' && W?.userscripts?.state?.isReady;
+    const wmePret = () => !!(pw.W && pw.W.userscripts && pw.W.userscripts.state && pw.W.userscripts.state.isReady);
 
     if (wmePret()) {
         _peuInit();

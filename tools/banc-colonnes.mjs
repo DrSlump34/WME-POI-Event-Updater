@@ -13,6 +13,10 @@ import { charger } from './extraire.mjs';
 
 const { mapColumns, normalizeHeader, mapChamps, CHAMPS } =
     charger(['champs', 'colonnes'], ['mapColumns', 'normalizeHeader', 'mapChamps', 'CHAMPS']);
+/* Absente avant l'audit du 25/09/2026 : le banc doit alors ÉCHOUER, pas planter. */
+const colonnesEnDouble = charger(['champs', 'colonnes'],
+    ["typeof colonnesEnDouble === 'function' ? colonnesEnDouble : null"].map((x) => 'colonnesEnDouble: ' + x))
+    .colonnesEnDouble;
 
 let reussis = 0;
 const echecs = [];
@@ -210,6 +214,39 @@ verifier(
 const tousLesLibelles = CHAMPS.flatMap(c => c.entetes);
 verifier('Aucun libellé n’est revendiqué par deux champs', [],
     tousLesLibelles.filter((e, i) => tousLesLibelles.indexOf(e) !== i));
+
+/* ------------------------------------------------------------------ *
+ * 6. ⛔ Audit du 25/09/2026 — vus échouer sur la 0.52                  *
+ * ------------------------------------------------------------------ */
+/* Le repli A/B/C lisait la description comme le nom, sur TOUT l'onglet, dès
+   qu'une seule en-tête n'était pas reconnue — alors que les deux autres
+   disaient où elles étaient. */
+verifier(
+    '⛔ Repli refusé quand des en-têtes reconnues sont à une AUTRE place que A/B/C',
+    false,
+    mapColumns(['Lien WME', 'Description', 'Nom']).usable
+);
+verifier(
+    '… et le motif est donné',
+    true,
+    mapColumns(['Lien WME', 'Description', 'Nom']).conflit === true
+);
+verifier(
+    'Des en-têtes reconnues à LEUR place A/B/C : le repli reste permis',
+    { perm: 0, name: 1, desc: 2, byPosition: true, usable: true },
+    plan(['Lien WME', 'Nom', 'Description'])
+);
+
+/* Deux colonnes pour un même champ : la première gagne — et cela doit se DIRE. */
+if (typeof colonnesEnDouble !== 'function') {
+    echecs.push('⛔ colonnesEnDouble absente : une seconde colonne pour un même champ est ignorée sans un mot');
+} else {
+    verifier('⛔ « Site » et « Website » : signalées',
+        [{ cle: 'url', colonnes: [1, 3] }],
+        colonnesEnDouble(['POI Permalink', 'Site', 'POI Name', 'Website', 'POI Description']));
+    verifier('Aucun doublon : rien à dire', [],
+        colonnesEnDouble(['POI Permalink', 'POI Name', 'POI Description', 'Website']));
+}
 
 /* ------------------------------------------------------------------ */
 if (echecs.length === 0) {

@@ -17,6 +17,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -72,18 +73,44 @@ const setTimeoutVrai = globalThis.setTimeout;
 globalThis.setTimeout = (fn) => { journal.push('setTimeout'); return 0; };
 globalThis.alert = rien;
 globalThis.XLSX = { read: rien, utils: {} };
-globalThis.require = () => function () {};
-globalThis.OpenLayers = { LonLat: function () {}, Bounds: function () {}, Projection: function () {} };
+/* ⚠️ `require` REFUSE ce qu'il ne connaît pas : un bouchon qui rend une
+   fonction pour n'importe quel nom laisserait passer un module mal nommé. */
+const pageRequire = (nom) => {
+    if (nom === 'Waze/Action/UpdateObject') return function () {};
+    throw new Error('require : module inconnu « ' + nom + ' »');
+};
+const pageOpenLayers = { LonLat: function () {}, Bounds: function () {}, Projection: function () {} };
 /* ⚠️⚠️ `isReady` A VRAI : le chargement seul ne prouve pas grand-chose — tout
    y est declaratif. C est initScript() qui construit, et c est la que se
    trouvent les erreurs d une refonte : une fonction disparue encore appelee,
    une variable retiree encore lue. */
-globalThis.W = {
-    userscripts: { state: { isReady: true, locale: 'fr' }, registerSidebarTab: () => ({ tabLabel: elementFactice(), tabPane: elementFactice() }), waitForElementConnected: async () => {} },
+const pageW = {
+    userscripts: {
+        state: { isReady: true, locale: process.env.PEU_LOCALE || 'fr' },
+        registerSidebarTab: () => { journal.push('onglet'); return { tabLabel: elementFactice(), tabPane: elementFactice() }; },
+        waitForElementConnected: async () => {},
+    },
     map: { getLayersByName: () => [], getCenter: () => ({}), getZoom: () => 17, setCenter: rien },
     model: { venues: { getObjectById: () => null }, actionManager: { add: rien, getActions: () => [] } },
     loginManager: { user: { attributes: { rank: 4 } } },
 };
+
+/* ⭐⭐⭐ DEUX MONDES, ET LE SCRIPT DOIT DÉMARRER DANS LES DEUX.
+   · la PAGE (script injecté à la main, ou `@grant none`) : W est une globale ;
+   · le BAC À SABLE de Tampermonkey (`@grant GM_xmlhttpRequest`) : W n'existe
+     QUE sous `unsafeWindow`. Un seul `W` lu comme globale, et le script meurt
+     au premier geste dans l'éditeur — alors qu'il démarre ici en mode page.
+   Le second passage se lance avec --bac-a-sable. */
+const BAC = process.argv.includes('--bac-a-sable');
+if (BAC) {
+    globalThis.unsafeWindow = { W: pageW, OpenLayers: pageOpenLayers, require: pageRequire };
+    globalThis.GM_xmlhttpRequest = () => { journal.push('GM_xmlhttpRequest'); };
+    globalThis.GM_info = { script: { version: '0.53.00' } };
+} else {
+    globalThis.W = pageW;
+    globalThis.OpenLayers = pageOpenLayers;
+    globalThis.require = pageRequire;
+}
 
 /* ⚠️⚠️ initScript() EST `async` : une exception qui s y produit ne remonte PAS
    au try/catch — elle devient une promesse rejetee. C est exactement ce qui
@@ -109,5 +136,31 @@ if (erreur) {
     process.exit(1);
 }
 
-console.log('✔ Le script demarre : aucune erreur levee au chargement.');
+/* ⚠️ « AUCUNE ERREUR » NE SUFFIT PAS : un script qui n'a rien construit ne lève
+   rien non plus. On exige que l'onglet ait été enregistré. */
+if (!journal.includes('onglet')) {
+    console.error('\n✖ Le script n’a rien construit : l’onglet n’a jamais été enregistré.\n');
+    process.exit(1);
+}
+if (BAC && journal.filter((j) => j === 'GM_xmlhttpRequest').length !== 1) {
+    console.error('\n✖ La vérification de version devait partir UNE fois : ' + journal.filter((j) => j === 'GM_xmlhttpRequest').length + '.\n');
+    process.exit(1);
+}
+
+if (BAC) {
+    console.log('✔ Bac à sable : le script démarre, W ne se lit que par unsafeWindow.');
+    process.exit(0);
+}
+console.log('✔ Page : le script démarre, aucune erreur levée au chargement.');
+/* Le second monde, dans un processus neuf : les globales du premier ne doivent
+   pas lui prêter main-forte. */
+try {
+    const sortie = execFileSync(process.execPath, [fileURLToPath(import.meta.url), '--bac-a-sable'], { encoding: 'utf8' });
+    process.stdout.write(sortie);
+} catch (e) {
+    process.stdout.write(e.stdout || '');
+    process.stderr.write(e.stderr || '');
+    process.exit(1);
+}
+console.log('✔ Le script demarre : aucune erreur levee au chargement, dans les deux mondes.');
 process.exit(0);

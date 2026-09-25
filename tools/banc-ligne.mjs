@@ -13,16 +13,13 @@
  *    mot reste a l'editeur.
  */
 
-import { source } from './extraire.mjs';
+import { bloc, source } from './extraire.mjs';
 
 /* `esc` et `t` vivent ailleurs : on les fournit, et `t` rend la cle demandee
    pour qu'un libelle ecrit en dur se voie. */
-const prelude = `
-    function esc(v) {
-        return String(v === undefined || v === null ? '' : v)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
+/* ⚠️ `esc` EST EXTRAIT, PAS RECOPIÉ : une copie gardait ce banc au vert
+   pendant qu'on cassait l'échappement du script (25/09/2026). */
+const prelude = bloc('esc') + `
     function t(cle, ...a) { return a.length ? cle + ':' + a.join(',') : cle; }
 `;
 const corps = prelude + source.slice(

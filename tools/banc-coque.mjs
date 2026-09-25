@@ -15,18 +15,15 @@
  *    dans `tools/maquette-ux.html` et, en dernier ressort, dans WME.
  */
 
-import { charger, source } from './extraire.mjs';
+import { bloc, charger, source } from './extraire.mjs';
 
 /* ⚠️ LE BLOC S'EVALUE AVEC SES DEPENDANCES : `esc` et `t` vivent ailleurs dans
    le script. On les fournit ici, en les gardant INOFFENSIFS — `t` rend la clé
    demandee, ce qui permet de verifier qu'AUCUN libelle n'est ecrit en dur. */
-const prelude = `
-    const PEU_EMOJI = '@@';
-    function esc(v) {
-        return String(v === undefined || v === null ? '' : v)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
+/* ⚠️ `esc` EST EXTRAIT, PAS RECOPIÉ : une copie gardait ce banc au vert
+   pendant qu'on cassait l'échappement du script (25/09/2026). */
+const prelude = bloc('esc') + `
+    const ICONE = '@@';
     function t(cle, ...a) { return a.length ? cle + ':' + a.join(',') : cle; }
 `;
 

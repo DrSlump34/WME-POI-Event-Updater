@@ -6,62 +6,114 @@
 
 ---
 
-# ✅ 16/09/2026 — LA REFONTE DE L'INTERFACE — v0.52 PUBLIÉE
+# 🔧 25/09/2026 — AUDIT TRAITÉ — v0.53.00 PRÊTE, **NON PUBLIÉE**
 
-## ✅ Publié le 16/09/2026
+L'audit du 25/09/2026 (11 dimensions, un réfuteur chacune, un arbitre ; rapport
+local `AUDIT-2026-09-25.md`, **exclu du dépôt**) a été traité en entier, dans
+l'ordre qu'il proposait : les filets d'abord, puis ce qui écrit, puis ce qui
+trompe, puis la charte.
 
-| Où | Vérifié |
-|---|---|
-| **GreasyFork 578776** | code SERVI comparé au local : identique aux deux lignes que GreasyFork réécrit ; **une seule capture**, la 0.52 |
-| **GitHub** | poussé jusqu'à `ce9b664` — capture et README à jour |
-| **Discuss 404593** | post 1 (version × 2, capture, trois phrases devenues fausses) + annonce bilingue |
+## 🔴 AVANT TOUTE PUBLICATION : L'ESSAI DANS WME, SANS ENREGISTRER
 
-⚠️ **La 0.51 n'a jamais été publiée seule** : son apport (la carte reste sur le
-périmètre) est entré avec la 0.52, et l'annonce le dit.
+**Le chemin qui écrit n'a toujours pas été cliqué dans l'éditeur** — ni en 0.52,
+ni en 0.53. Il est désormais couvert par un banc (`banc-application`), mais un
+banc ne voit ni `UpdateObject`, ni le vrai SDK, ni un lieu verrouillé.
 
-## 🔴 LE SEUL CHEMIN NON ÉPROUVÉ, ET C'EST LE PLUS SENSIBLE
+Et **la 0.53 change le monde dans lequel le script tourne** : `@grant
+GM_xmlhttpRequest` le place dans le bac à sable de Tampermonkey, où `W`,
+`OpenLayers`, `require` et `getWmeSdk` ne se lisent que par `unsafeWindow`.
+`banc-demarrage` le vérifie au démarrage, pas au premier geste.
 
-**« Appliquer » n'a jamais été cliqué dans la nouvelle interface.** C'est le
-chemin qui ÉCRIT sur la carte, et il a été remanié : la boucle de pose est
-sortie de l'ancien aperçu (`poserUnLieu`), et les lignes à poser se lisent
-autrement (`lignesCochees`).
+⇒ **L'essai, dans l'ordre** (installer la 0.53.00 dans Tampermonkey, pas par
+injection — l'injection tourne en mode page et ne prouve rien du bac à sable) :
 
-⚠️ **Le code de pose lui-même n'a pas été réécrit, il a été EXTRAIT** — mot pour
-mot, à une chose près : il recevait des éléments du DOM (`inpName.value`), il
-reçoit des chaînes. Ses deux garde-fous sont intacts : on relit après avoir
-écrit, et un champ à poser jamais envoyé est un MANQUE, pas un succès.
+1. le script démarre ; l'onglet Scripts montre l'icône, `v0.53.00`, l'aide
+   repliée, le pied de liens ; la console ne dit rien ;
+2. charger `Essai 0.50 - champs du lot D2.xlsx` ; les anomalies s'affichent et
+   **restent** au-dessus du tableau ;
+3. retoucher le nom d'une ligne « = » : elle se **coche** ; le vider : elle se
+   décoche ;
+4. cocher **une** ligne, dont un lieu verrouillé au-dessus du rang si possible
+   (SaE), puis Appliquer ; lire le bilan (actions ajoutées, SaE), la ligne ✔, le
+   rapport exporté (colonne « Champs non posés ») ;
+5. **Annuler dans WME jusqu'à ce que la pile soit vide.** Enregistrer reste grisé.
 
-⇒ **À faire avant toute publication** : charger un classeur d'essai, cocher une
-ligne, appliquer, et vérifier que le bilan dit le bon nombre de modifications en
-attente — puis annuler dans WME.
+Puis refaire les captures (l'interface a changé de couleurs) et publier selon
+`peu-publication-workflow` : la description est prête dans
+`Descr. GreasyFork 0.53.md`.
 
-## ✅ Ce qui est éprouvé dans l'éditeur
+## ✅ Ce que la 0.53 corrige (audit du 25/09/2026)
 
-Le script démarre · le bouton se docke sans recouvrir ceux de WME · la fenêtre
-s'ouvre à leur gauche, **se déplace et se redimensionne à la souris**, **se
-replie** · le glisser-déposer lit le classeur · le premier onglet s'ouvre seul ·
-la carte se cadre sur le périmètre (zoom plafonné à 19) · le tableau distingue
-les états, la case est en tête de ligne, la ligne qui RETIRE arrive orange et
-non cochée, et le bouton annonce le nombre exact de lignes cochées.
+| # | Défaut | Correction |
+|---|---|---|
+| A2a | L'ordre des catégories n'était pas comparé : la catégorie principale changeait en silence | `LISTES_ORDONNEES = ['categories']` |
+| A1 | Une retouche dans l'aperçu était jetée en silence (régression 0.52) | `caseApresRetouche` + écouteur `input` |
+| A2b | Noms alternatifs ni comparés, ni montrés, ni relus | comparés comme les autres champs |
+| A5 | Repli A/B/C appliqué alors que des en-têtes reconnues étaient ailleurs | onglet refusé (`sheetHeaderConflit`) |
+| A4 | L'infobulle promettait qu'une description vide n'efface rien | texte corrigé, effacement dit dans le champ, **sans décocher** |
+| A4b | Nom vide coché d'office | décoché |
+| A6 | Pose sans `try` : une exception arrêtait tout, sans bilan | `poserLesLignes`, un `try` par lieu |
+| A7 | Aucun état « occupé » : double pose d'un clic | `occuper()` ; lignes posées décochées |
+| A9 | Lieu sans nom déclaré introuvable | `lieuPret` |
+| B1 | Rapport sans permalien ni champs non posés | 8 colonnes, statuts traduits |
+| B3 | Anomalies effacées au rendu du tableau | `_anomalies`, redessinées à chaque rendu |
+| E1 | Valeur remplacée visible seulement en infobulle | « (remplace : …) » en clair |
+| — | Nom et description jamais relus après `UpdateObject` | la relecture fait foi pour tout |
+| — | Recentrage à chaque pose | seulement si le lieu manque |
+| — | `recordFileApplied` jamais appelée | rétablie |
+| — | « 0 en attente » sur une erreur | ajouts de CETTE pose, ou rien |
+| — | Lieux en échec non nommés, « Réessayer » disparu | nommés, restent cochés, Réessayer |
+| — | Lignes cochées masquées par le filtre | le pied le dit |
+| — | `showValidationReport` hors de portée (dépôt d'un non-classeur) | sortie d'`initScript` |
+| — | Calque des lieux allumé sans relecture, `alert()` | relu, message dans la fenêtre |
+| — | Cellules lues brutes | `String(…).trim()` |
+| — | Deux colonnes pour un champ, `venues=` multiples, autre `env` | signalés |
+| — | Tri promis mais absent | tri par nom / description, au clavier aussi |
+| — | Replier puis déplacer ⇒ 120 px | `memoriserGeometrie` |
+| — | SheetJS 0.18.5 (2 CVE), deux `@require` sans empreinte | 0.20.3, `cdn.sheetjs.com`, `#sha256=` |
+| — | Gabarit publié rejeté en entier | permaliens complétés (0/0) |
+| — | Accessibilité : focus, rôles, contrastes, `aria-label`, clavier | voir SPEC § 7 |
+| — | Code mort (`makeDraggable`, `GEOM_KEY`, `champsParCible`…) | retiré |
+| — | Documents périmés (SPEC, README, description GreasyFork) | réécrits |
+
+**Charte commune** : en-tête (`0.53.00`, `@homepageURL`, `@supportURL`,
+`@connect`), une seule icône, panneau aux valeurs relevées dans WME, aide
+repliable, pied de liens, pastille de nouvelle version, 8 langues, insécables,
+un seul bouton plein. ⚖️ Pilules pleines en **#1976d2** (décision de l'auteur).
+⚖️ **`@namespace` gardé** (`tampermonkey.net`) : le changer peut faire voir un
+nouveau script aux gestionnaires, donc des doublons chez les installés.
 
 ## 🧰 Les outils, et ce que chacun NE voit pas
 
 | Outil | Ce qu'il tient | Son angle mort |
 |---|---|---|
-| `banc-demarrage.mjs` | le script démarre dans un WME de façade | ses bouchons sont **complaisants** — ils ont dit trois fois « ça démarre » sur un script mort |
+| `banc-application.mjs` | **le chemin qui écrit** : pose, relecture, exception au milieu, retouche, catégories permutées, alias ajouté ; bouchons qui REFUSENT l'inconnu | `UpdateObject`, le vrai SDK, un lieu SaE |
+| `banc-demarrage.mjs` | le script démarre, **en mode page ET en bac à sable** (W par `unsafeWindow` seulement), l'onglet est construit | ce qui se passe au premier geste |
 | `banc-demarrage.html` | le même, dans un **vrai navigateur** | il faut le servir (`php -S 127.0.0.1:8131 -t .`) |
-| `banc-coque.mjs` · `banc-ligne.mjs` | l'ossature et les lignes, rendues en TEXTE | qu'un bouton existe ne dit pas qu'il se voit |
+| `banc-coque.mjs` · `banc-ligne.mjs` | l'ossature et les lignes, rendues en TEXTE ; `esc()` **extrait** du script | qu'un bouton existe ne dit pas qu'il se voit |
 | `banc-tableau.html` · `maquette-ux.html` | le rendu réel, mesuré | ni le comportement, ni la carte |
 | `banc-fenetre.mjs` | la géométrie (bornes, planchers, plafond) | pas que la souris réponde |
 | `banc-carte.mjs` | le cadrage, et son câblage lu dans la source | le SDK et la carte |
 | `banc-cochage.mjs` | la règle du cochage | pas la case elle-même |
+| `banc-colonnes.mjs` | la lecture des en-têtes, le repli et son refus, les colonnes en double | le DOM |
+| `banc-champs.mjs` · `banc-valeurs.mjs` · `banc-pose.mjs` | conversion, liste blanche, relecture | le SDK |
+| `banc-chargement.mjs` | rejoue la lecture d'un vrai classeur (SheetJS **0.20.3** à fournir) | l'écran |
 | `check-css.mjs` | accent grave, interpolation, accolades, variables, `[hidden]` | la mise en page |
-| `check-libelles.mjs` | libellés manquants **et en double** | les appels dynamiques (`t(x ? 'a' : 'b')`) |
-| `check-architecture.mjs` | panneau/fenêtre, un seul champ de fichier, garde-fous, **classes orphelines** | lit du texte, pas du comportement |
+| `check-libelles.mjs` | **8 langues**, même jeu de clés, appels directs ET indirects, clés dérivées (`ch`/`mo`/`va`), insécables françaises | la justesse d'une traduction |
+| `check-architecture.mjs` | panneau/fenêtre, un seul champ de fichier, **portée des fonctions d'`initScript`**, icône unique, classes orphelines | lit du texte, pas du comportement |
+
+Chaque contrôle ajouté ou réparé le 25/09/2026 a été **vu échouer** d'abord
+(sur la 0.52 ou par mutation) : `banc-application` (11 échecs sur la 0.52),
+`banc-colonnes` (3), `check-libelles` (5 mutations, 38 fautes de typographie),
+`check-architecture` (portée, icône), `banc-demarrage` (W lu comme globale),
+`banc-ligne`/`banc-coque` (`esc()` cassé).
 
 ## ⏳ Reste
 
-1. **Appliquer**, une fois, dans l'éditeur (ci-dessus).
-2. ✅ Publié le 16/09/2026.
-3. Les libellés morts de l'ancienne interface (une quarantaine) : ils ne gênent
-   rien, `check-libelles.mjs` les liste en ⏳.
+1. **L'essai dans WME** ci-dessus, puis captures et publication.
+2. La **lecture** du classeur ne reconnaît que les libellés français et les clés
+   WME (les catégories exceptées) : un classeur rempli dans une autre langue
+   voit ses valeurs refusées — signalées, jamais posées.
+3. Les liens du pied et les titres en #2196f3 font 3,12:1 sur blanc (petit
+   texte) : c'est la charte, à arbitrer pour les quatre scripts comme l'ont été
+   les pilules.
