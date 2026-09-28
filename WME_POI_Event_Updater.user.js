@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.53.00
+// @version      0.53.01
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -1725,13 +1725,21 @@
      *    un parking ne peut en porter qu'une seule. C'est le seul champ où il ne
      *    se tait pas.
      */
-    function chargerCategories(sdk) {
+    /* En mode async, le SDK rend une promesse : deux fichiers ouverts coup sur
+       coup partagent le même chargement au lieu d'interroger WME deux fois. */
+    let _categoriesEnCours = null;
+    async function chargerCategories(sdk) {
         const table = VALEURS_WME.categories;
         if (Object.keys(table).length) return Object.keys(table).length;
-        (sdk.DataModel.Venues.getAllVenueCategories() || []).forEach(c => {
-            if (c && c.id) table[c.id] = [c.localizedName || c.id];
-        });
-        return Object.keys(table).length;
+        if (!_categoriesEnCours) {
+            _categoriesEnCours = (async () => {
+                (await sdk.DataModel.Venues.getAllVenueCategories() || []).forEach(c => {
+                    if (c && c.id) table[c.id] = [c.localizedName || c.id];
+                });
+                return Object.keys(table).length;
+            })().finally(() => { _categoriesEnCours = null; });
+        }
+        return _categoriesEnCours;
     }
 
     function cleWme(referentiel, saisie) {
@@ -2384,7 +2392,7 @@
         if (typeof pw.getWmeSdk !== 'function') {
             throw new Error('SDK de WME indisponible');
         }
-        _sdk = pw.getWmeSdk({ scriptId: 'poi-event-updater', scriptName: 'WME POI Event Updater' });
+        _sdk = pw.getWmeSdk({ scriptId: 'poi-event-updater', scriptName: 'WME POI Event Updater', mode: 'async' });
         return _sdk;
     }
 
@@ -3441,7 +3449,11 @@
             montrerGuide('guideFichier', 'guideFichierSuite');
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = ev => {
+            reader.onload = async ev => {
+                /* Le référentiel des catégories vient de l'éditeur, dans SA langue.
+                   Un échec laisse la table vide : les catégories seront alors
+                   refusées et signalées, jamais posées à l'aveugle. */
+                try { await chargerCategories(obtenirSdk()); } catch (e) { /* signalé à la ligne */ }
                 try {
                     lireClasseur(file.name, ev.target.result);
                 } catch (err) {
@@ -3534,10 +3546,7 @@
      *    qui ne montre que ce qui est retenu, ni la carte ne la montreraient.
      */
     function lireClasseur(nomFichier, donnees) {
-        /* Le référentiel des catégories vient de l'éditeur, dans SA langue.
-           Un échec laisse la table vide : les catégories seront alors
-           refusées et signalées, jamais posées à l'aveugle. */
-        try { chargerCategories(obtenirSdk()); } catch (e) { /* signalé à la ligne */ }
+        /* Les catégories sont chargées AVANT l'appel (`reader.onload`) : le SDK async rend une promesse. */
         const wb = XLSX.read(new Uint8Array(donnees), {type:'array'});
         const all = [];
         const warnings = [];
@@ -4039,7 +4048,8 @@
         const { maj, ignores } = construireMaj(aPoser);
         let erreurSdk = null;
         if (Object.keys(maj).length) {
-            try { env.ecrireSdk(item.vid, maj); } catch (e) { erreurSdk = e.message; }
+            /* `await` : en mode async, un refus du SDK est une promesse rejetée, que le `try` ne verrait pas sans lui. */
+            try { await env.ecrireSdk(item.vid, maj); } catch (e) { erreurSdk = e.message; }
         }
 
         /* ⭐⭐⭐ LA RELECTURE FAIT FOI, POUR TOUT — le nom et la description compris.

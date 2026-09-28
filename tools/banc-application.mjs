@@ -73,6 +73,8 @@ function fauxWme(lieux, options = {}) {
         },
         ecrireSdk(vid, maj) {
             journal.push('sdk:' + vid);
+            /* Le SDK en mode async : un refus arrive en PROMESSE REJETÉE, pas en exception. */
+            if (options.sdkRejette) return Promise.reject(new Error('SDK refusé'));
             const a = modele.get(vid).attributes;
             Object.keys(maj).forEach((k) => {
                 if (!CONNUS_DU_SDK.includes(k)) return;       // accepté, ignoré, sans un mot
@@ -200,6 +202,11 @@ const attendre = async () => {
         verifier('Rien dans le modèle : pas chargé', false, X.lieuPret(null));
         verifier('Objet sans attributs : pas chargé', false, X.lieuPret({}));
     }
+
+    /* 3.8 ⛔ SDK async : un refus en promesse rejetée se dit, il ne s'évapore pas. */
+    w = fauxWme([lieu('11')], { sdkRejette: true });
+    res = await X.poserUnLieu(item('11', 'N', '', { phone: '04' }), w.env);
+    verifier('⛔ SDK async qui rejette : le message est gardé', true, JSON.stringify(res).includes('SDK refusé'));
 
     /* 3.7 Introuvable : rien n'est écrit. */
     w = fauxWme([lieu('9')], { introuvables: ['10'] });

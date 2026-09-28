@@ -139,7 +139,7 @@ verifier('⚠️ Et une catégorie est donc REFUSÉE, jamais posée à l’aveug
     null, cleWme('categories', 'Parking'));
 
 const faussSdk = (liste) => ({ DataModel: { Venues: { getAllVenueCategories: () => liste } } });
-verifier('Le chargement remplit le référentiel', 3, chargerCategories(faussSdk([
+verifier('Le chargement remplit le référentiel', 3, await chargerCategories(faussSdk([
     { id: 'PARKING_LOT', localizedName: 'Parking' },
     { id: 'RESTAURANT', localizedName: 'Restaurant' },
     { id: 'ZOO_AQUARIUM', localizedName: 'Zoo, aquarium' }
@@ -157,15 +157,20 @@ verifier('Plusieurs catégories, et le refus rendu à part',
 let appels = 0;
 const sdkCompteur = { DataModel: { Venues: { getAllVenueCategories: () => { appels++; return [{ id: 'PARKING_LOT', localizedName: 'Parking' }]; } } } };
 Object.keys(VALEURS_WME.categories).forEach(k => delete VALEURS_WME.categories[k]);
-chargerCategories(sdkCompteur);
-chargerCategories(sdkCompteur);
-chargerCategories(sdkCompteur);
+/* Trois ouvertures coup sur coup, SANS attendre : elles partagent le même chargement. */
+await Promise.all([chargerCategories(sdkCompteur), chargerCategories(sdkCompteur), chargerCategories(sdkCompteur)]);
+await chargerCategories(sdkCompteur);
 verifier('Trois chargements, un seul appel au SDK', 1, appels);
+
+/* Le SDK en mode async rend une PROMESSE : le référentiel se remplit pareil. */
+Object.keys(VALEURS_WME.categories).forEach(k => delete VALEURS_WME.categories[k]);
+verifier('Un SDK async remplit le référentiel', 1,
+    await chargerCategories({ DataModel: { Venues: { getAllVenueCategories: async () => [{ id: 'PARKING_LOT', localizedName: 'Parking' }] } } }));
 
 /* Un SDK muet ne doit rien inventer. */
 Object.keys(VALEURS_WME.categories).forEach(k => delete VALEURS_WME.categories[k]);
 verifier('Un SDK qui ne rend rien laisse le référentiel vide', 0,
-    chargerCategories(faussSdk(null)));
+    await chargerCategories(faussSdk(null)));
 
 /* ------------------------------------------------------------------ */
 if (echecs.length === 0) {
