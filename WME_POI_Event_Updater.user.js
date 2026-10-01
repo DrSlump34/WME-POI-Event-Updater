@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.53.01
+// @version      0.53.02
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -20,7 +20,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      update.greasyfork.org
-// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+
+// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cGF0aCBkPSdNMTIgMS44QzcuOCAxLjggNC42IDUgNC42IDkuMWMwIDUuNiA3LjQgMTMuMSA3LjQgMTMuMXM3LjQtNy41IDcuNC0xMy4xQzE5LjQgNSAxNi4yIDEuOCAxMiAxLjh6JyBmaWxsPScjZmZiMzAwJyBzdHJva2U9JyM4ZDUzMDAnIHN0cm9rZS13aWR0aD0nMS40JyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PGNpcmNsZSBjeD0nMTInIGN5PSc5LjEnIHI9JzIuOScgZmlsbD0nI2ZmZicgc3Ryb2tlPScjOGQ1MzAwJyBzdHJva2Utd2lkdGg9JzEnLz48L3N2Zz4=
 // @require      https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js#sha256=cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41
 // @downloadURL  https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.user.js
 // @updateURL    https://update.greasyfork.org/scripts/578776/WME%20POI%20Event%20Updater.meta.js
@@ -62,7 +62,7 @@
        Il y en avait trois — un carré sur GreasyFork, une épingle sur l'onglet et
        le bouton, un emoji dans les titres. check-architecture compare cette
        chaîne à celle de l'en-tête : les deux ne peuvent pas diverger. */
-    const ICONE = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDEyOCAxMjgnPgogIDxyZWN0IHdpZHRoPScxMjgnIGhlaWdodD0nMTI4JyByeD0nMjQnIGZpbGw9JyMyQzZFRDUnLz4KICA8ZyB0cmFuc2Zvcm09J3JvdGF0ZSgtMTggNjQgNjQpJz4KICAgIDxwYXRoIGQ9J000MCA0MCBMODYgNDAgTDEwMiA2NCBMODYgODggTDQwIDg4IFonIGZpbGw9J3doaXRlJy8+CiAgICA8Y2lyY2xlIGN4PSc1MicgY3k9JzY0JyByPSc2JyBmaWxsPScjMkM2RUQ1Jy8+CiAgPC9nPgogIDxnIGZpbGw9J25vbmUnIHN0cm9rZT0nI0ZGQzQwMCcgc3Ryb2tlLXdpZHRoPSc2JyBzdHJva2UtbGluZWNhcD0ncm91bmQnPgogICAgPHBhdGggZD0nTTQ0IDEwMCBBMjIgMjIgMCAwIDEgODQgOTInLz4KICAgIDxwYXRoIGQ9J004NCAyOCBBMjIgMjIgMCAwIDEgNDQgMzYnLz4KICA8L2c+CiAgPHBvbHlnb24gcG9pbnRzPSc4NCw4NCA5Miw5NCA3OCw5OCcgZmlsbD0nI0ZGQzQwMCcvPgogIDxwb2x5Z29uIHBvaW50cz0nNDQsNDQgMzYsMzQgNTAsMzAnIGZpbGw9JyNGRkM0MDAnLz4KPC9zdmc+';
+    const ICONE = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cGF0aCBkPSdNMTIgMS44QzcuOCAxLjggNC42IDUgNC42IDkuMWMwIDUuNiA3LjQgMTMuMSA3LjQgMTMuMXM3LjQtNy41IDcuNC0xMy4xQzE5LjQgNSAxNi4yIDEuOCAxMiAxLjh6JyBmaWxsPScjZmZiMzAwJyBzdHJva2U9JyM4ZDUzMDAnIHN0cm9rZS13aWR0aD0nMS40JyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PGNpcmNsZSBjeD0nMTInIGN5PSc5LjEnIHI9JzIuOScgZmlsbD0nI2ZmZicgc3Ryb2tlPScjOGQ1MzAwJyBzdHJva2Utd2lkdGg9JzEnLz48L3N2Zz4=';
     let poiData = [];
     /* ⚠️ LA POIGNEE VERS LE CHAMP DE FICHIER, pas une seconde lecture : le
        chemin qui lit le classeur valide vingt règles, tient un rapport
@@ -2914,7 +2914,7 @@
         wrap.id = 'peu-fab-wrap';
         wrap.innerHTML = '<button type="button" id="peu-fab-btn" title="' + esc(t('fabTitle')) + '"'
             + ' aria-label="' + esc(t('fabTitle')) + '">'
-            + '<img src="' + ICONE + '" alt="" width="22" height="22" style="display:block;border-radius:5px">'
+            + '<img src="' + ICONE + '" alt="" width="22" height="22" style="display:block">'
             + '<span class="peu-fab-badge" id="peu-fab-badge"></span>'
             + '</button>';
         cont.appendChild(wrap);
