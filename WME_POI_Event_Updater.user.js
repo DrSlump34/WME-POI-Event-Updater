@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.53.02
+// @version      0.53.03
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -4599,21 +4599,16 @@
         initScript().catch((e) => console.error('[WPEU] démarrage', e));
     }
 
-    /* ⚠️⚠️ `typeof` ET NON `W?.` : l’optional chaining protège d’un objet NUL,
-       pas d’une variable JAMAIS DÉCLARÉE. Si le script s’exécute avant que WME
-       ait posé son `W`, `W?.x` lève une ReferenceError — et elle survient AVANT
-       que la moindre ligne d’interface soit construite. Le script meurt alors
-       en entier, sans rien poser : ni feuille de style, ni bouton, ni onglet.
-       C’est exactement le symptôme d’un script « qui n’a pas chargé ». */
-    const wmePret = () => !!(pw.W && pw.W.userscripts && pw.W.userscripts.state && pw.W.userscripts.state.isReady);
-
-    if (wmePret()) {
-        _peuInit();
-    } else {
-        document.addEventListener('wme-ready', _peuInit, {once:true});
-        const fallback = setInterval(() => {
-            if (wmePret()) { clearInterval(fallback); _peuInit(); }
-        }, 500);
-        setTimeout(() => clearInterval(fallback), 30000);
-    }
+    // Démarrage dès que le SDK est prêt, à TOUS les zooms (comme WNA et WZM) : « wme-ready » n'arrive qu'à un zoom
+    // éditable (≥ 12), et le script — son bouton de carte compris — restait absent tant qu'on regardait la carte de
+    // loin (demande de l'auteur, 04/10/2026). Garde : wme-initialized et wme-ready peuvent arriver tous les deux.
+    (() => {
+        let lance = false;
+        const go = () => { if (lance) return; lance = true; clearInterval(minuterie); Promise.resolve(pw.SDK_INITIALIZED).then(_peuInit); };
+        const pret = () => !!(pw.SDK_INITIALIZED || (pw.W && pw.W.userscripts && pw.W.userscripts.state && pw.W.userscripts.state.isReady));
+        const minuterie = setInterval(() => { if (pret()) go(); }, 300);
+        if (pret()) go();
+        document.addEventListener('wme-initialized', go, { once: true });
+        document.addEventListener('wme-ready', go, { once: true });
+    })();
 })();
