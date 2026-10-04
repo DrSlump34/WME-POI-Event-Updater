@@ -39,7 +39,7 @@ const elementFactice = () => {
         focus: rien, click: rien, insertRow: elementFactice, createTHead: elementFactice,
         set innerHTML(v) { this._html = v; }, get innerHTML() { return this._html || ''; },
         textContent: '', value: '', hidden: false, disabled: false, checked: false,
-        offsetWidth: 800, offsetHeight: 600, parentElement: null, lastElementChild: null,
+        offsetWidth: 800, offsetHeight: 600, parentElement: null, lastElementChild: null, isConnected: true,
     };
 
     return el;
@@ -73,26 +73,32 @@ const setTimeoutVrai = globalThis.setTimeout;
 globalThis.setTimeout = (fn) => { journal.push('setTimeout'); return 0; };
 globalThis.alert = rien;
 globalThis.XLSX = { read: rien, utils: {} };
-/* ⚠️ `require` REFUSE ce qu'il ne connaît pas : un bouchon qui rend une
-   fonction pour n'importe quel nom laisserait passer un module mal nommé. */
-const pageRequire = (nom) => {
-    if (nom === 'Waze/Action/UpdateObject') return function () {};
-    throw new Error('require : module inconnu « ' + nom + ' »');
+/* ⭐⭐⭐⭐ UN WME SANS `W` (0.54.00). Waze retire `W` de WME le 24/11/2026 : la façade
+   n'en a PAS, ni `OpenLayers`, ni `require`. Un seul accès restant, et le
+   script lève ici — c'est ce qu'on veut voir avant Waze.
+   ⚠️ LE FAUX SDK EST EN MODE ASYNC (seul mode au 01/01/2027) : chaque méthode
+   rend une promesse, comme le vrai. Et il REFUSE ce qu'il ne connaît pas. */
+const async = (v) => () => Promise.resolve(v);
+const fauxSdk = {
+    Sidebar: { registerScriptTab: () => { journal.push('onglet'); return Promise.resolve({ tabLabel: elementFactice(), tabPane: elementFactice() }); } },
+    Settings: { getLocale: async({ localeCode: process.env.PEU_LOCALE || 'fr' }) },
+    State: { getUserInfo: async({ rank: 4 }) },
+    Map: { getZoomLevel: async(17), setMapCenter: async(), zoomToExtent: async(), isLayerVisible: async(true) },
+    Editing: { getUnsavedChangesCount: async(0) },
+    DataModel: { Venues: { getById: async(null), updateVenue: async(), ParkingLot: {} } },
 };
-const pageOpenLayers = { LonLat: function () {}, Bounds: function () {}, Projection: function () {} };
-/* ⚠️⚠️ `isReady` A VRAI : le chargement seul ne prouve pas grand-chose — tout
-   y est declaratif. C est initScript() qui construit, et c est la que se
-   trouvent les erreurs d une refonte : une fonction disparue encore appelee,
-   une variable retiree encore lue. */
-const pageW = {
-    userscripts: {
-        state: { isReady: true, locale: process.env.PEU_LOCALE || 'fr' },
-        registerSidebarTab: () => { journal.push('onglet'); return { tabLabel: elementFactice(), tabPane: elementFactice() }; },
-        waitForElementConnected: async () => {},
+const sdkStrict = (o, nom) => new Proxy(o, {
+    get(c, k) {
+        if (typeof k === 'symbol' || k === 'then') return c[k];
+        if (!(k in c)) throw new Error('SDK : membre inconnu « ' + nom + '.' + String(k) + ' »');
+        const v = c[k];
+        return (v && typeof v === 'object') ? sdkStrict(v, nom + '.' + String(k)) : v;
     },
-    map: { getLayersByName: () => [], getCenter: () => ({}), getZoom: () => 17, setCenter: rien },
-    model: { venues: { getObjectById: () => null }, actionManager: { add: rien, getActions: () => [] } },
-    loginManager: { user: { attributes: { rank: 4 } } },
+});
+const pageGetWmeSdk = (o) => {
+    if (!o || o.mode !== 'async') throw new Error('getWmeSdk doit être appelé en mode async');
+    journal.push('sdk');
+    return sdkStrict(fauxSdk, 'sdk');
 };
 
 /* ⭐⭐⭐ DEUX MONDES, ET LE SCRIPT DOIT DÉMARRER DANS LES DEUX.
@@ -103,13 +109,12 @@ const pageW = {
    Le second passage se lance avec --bac-a-sable. */
 const BAC = process.argv.includes('--bac-a-sable');
 if (BAC) {
-    globalThis.unsafeWindow = { W: pageW, OpenLayers: pageOpenLayers, require: pageRequire };
+    globalThis.unsafeWindow = { getWmeSdk: pageGetWmeSdk, SDK_INITIALIZED: Promise.resolve() };
     globalThis.GM_xmlhttpRequest = () => { journal.push('GM_xmlhttpRequest'); };
     globalThis.GM_info = { script: { version: '0.53.00' } };
 } else {
-    globalThis.W = pageW;
-    globalThis.OpenLayers = pageOpenLayers;
-    globalThis.require = pageRequire;
+    globalThis.getWmeSdk = pageGetWmeSdk;
+    globalThis.SDK_INITIALIZED = Promise.resolve();
 }
 
 /* ⚠️⚠️ initScript() EST `async` : une exception qui s y produit ne remonte PAS
@@ -148,7 +153,7 @@ if (BAC && journal.filter((j) => j === 'GM_xmlhttpRequest').length !== 1) {
 }
 
 if (BAC) {
-    console.log('✔ Bac à sable : le script démarre, W ne se lit que par unsafeWindow.');
+    console.log('✔ Bac à sable : le script démarre, sans W, le SDK lu par unsafeWindow.');
     process.exit(0);
 }
 console.log('✔ Page : le script démarre, aucune erreur levée au chargement.');

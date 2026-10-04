@@ -66,6 +66,10 @@ function fauxWme(lieux, options = {}) {
             if (options.refuseHerite && options.refuseHerite.includes(venue.attributes.id)) {
                 throw new Error('UpdateObject refusé');
             }
+            /* 0.54.00 : le nom passe par le SDK async — un refus est une PROMESSE REJETÉE. */
+            if (options.heriteRejette && options.heriteRejette.includes(venue.attributes.id)) {
+                return Promise.reject(new Error('updateVenue refusé'));
+            }
             if (options.herite === 'muet') return;          // une suggestion : rien ne change
             ['name', 'description', 'aliases'].forEach((k) => {
                 if (k in champs) venue.attributes[k] = champs[k];
@@ -192,6 +196,16 @@ const attendre = async () => {
         verifier('… le message est gardé', 'UpdateObject refusé', bilan.resultats[1].erreur);
         verifier('… et la progression va au bout', [1, 2, 3], vus);
         verifier('… le lieu en erreur est rendu pour « Réessayer »', ['6'], bilan.aReprendre.map((x) => x.vid));
+    }
+
+    /* 3.5 bis ⛔ (0.54.00) Le refus du NOM arrive en promesse rejetée (SDK async) : sans
+       `await` devant ecrireHerite, la ligne se dirait « posée » ou « partielle ». */
+    {
+        w = fauxWme([lieu('8'), lieu('9')], { heriteRejette: ['9'] });
+        const bilan = await X.poserLesLignes([item('8', 'A', '', {}), item('9', 'B', '', {})], w.env);
+        verifier('⛔ Nom refusé en promesse rejetée : la ligne est en ERREUR',
+            ['applied', 'erreur'], bilan.resultats.map((x) => x.status));
+        verifier('… avec le message du SDK', 'updateVenue refusé', bilan.resultats[1].erreur);
     }
 
     /* 3.6 ⛔ Un lieu sans nom est un lieu chargé. */

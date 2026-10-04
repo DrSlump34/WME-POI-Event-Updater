@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.53.03
+// @version      0.54.00
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -32,14 +32,13 @@
     /* ⚠️⚠️ LA PAGE SE LIT PAR `unsafeWindow`. La pastille de nouvelle version
        exige GM_xmlhttpRequest (la politique de sécurité de WME interdit d'appeler
        GreasyFork depuis la page) ; accorder une permission fait tourner le
-       script dans un bac à sable, où `W`, `OpenLayers`, `require` et
-       `getWmeSdk` n'existent plus comme variables globales.
-       ⇒ Ces quatre noms sont DÉCLARÉS ICI, et posés depuis la page au démarrage
-         (`_peuInit`) : chaque usage du script désigne ces variables-ci, jamais
-         une globale qui pourrait manquer. banc-demarrage le vérifie en faisant
-         tourner le script dans un faux bac à sable. */
+       script dans un bac à sable, où `getWmeSdk` n'existe plus comme variable
+       globale : il se lit par `pw`. banc-demarrage le vérifie en faisant
+       tourner le script dans un faux bac à sable.
+       ⚠️⚠️ 0.54.00 : PLUS AUCUN `W`, ni `OpenLayers`, ni `require`. Waze retire
+          `W` de WME le 24/11/2026 (annonce Discuss 413664) : tout passe par le
+          SDK. banc-demarrage fait tourner le script dans un WME SANS `W`. */
     const pw = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
-    let W = null, OpenLayers = null, require = null;
 
     const scriptId   = 'poi-event-updater';
     const URL_DISCUSS = 'https://www.waze.com/discuss/t/script-wme-poi-event-updater/404593';
@@ -77,9 +76,9 @@
      * ⚠️ Le portugais se décide par le PAYS (pt-BR / pt-PT) : les deux diffèrent
      *    par le vocabulaire de l'éditeur, pas seulement par l'orthographe.
      */
-    function detectLang() {
+    function detectLang(localeWme) {
         try {
-            const l = String((W && W.userscripts && W.userscripts.state && W.userscripts.state.locale)
+            const l = String(localeWme
                 || document.documentElement.lang || navigator.language || 'en').toLowerCase();
             if (l.startsWith('pt')) return l.indexOf('br') !== -1 ? 'pt-BR' : 'pt-PT';
             const c = l.slice(0, 2) === 'iw' ? 'he' : l.slice(0, 2);
@@ -2036,12 +2035,12 @@
     // Logique pure de l'écriture : ce qu'on envoie, et ce qu'on vérifie après.
     // L'appel au SDK, lui, tient en trois lignes dans runApply.
 
-    /* Ce que l'ANCIEN mécanisme écrit déjà (`UpdateObject`, depuis la 0.1) :
-       on n'y touche pas. Le reste passe par le SDK.
-       ⚠️ Deux mécanismes cohabitent donc, et c'est délibéré : le nom et la
-          description sont le cœur du script, éprouvé sur le terrain depuis des
-          mois. Les migrer « tant qu'on y est » aurait mis en jeu ce qui marche
-          pour gagner une élégance que personne ne verrait. */
+    /* Le nom, la description et les noms alternatifs s'écrivent À PART (`ecrireHerite`),
+       comme depuis la 0.1 — le reste par `ecrireSdk`.
+       ⚠️ 0.54.00 : `ecrireHerite` passait par `UpdateObject` sur `W.model`, que Waze
+          retire le 24/11/2026 ; il passe désormais lui aussi par `updateVenue` du SDK,
+          qui accepte ces trois champs. Deux appels restent distincts : un refus sur
+          le nom ne doit pas emporter les champs complémentaires sans le dire. */
     const CIBLES_HERITEES = ['name', 'description', 'aliases'];
 
     /**
@@ -2420,10 +2419,17 @@
     // 'ok'   : édition directe possible
     // 'sae'  : lock supérieur au rang → Suggest an Edit
     // 'hard' : lock niveau 7 (staff Waze uniquement)
+    /* Le rang de l'éditeur connecté, relu par le SDK à chaque ouverture d'aperçu
+       (`lireRang`) : getLockStatus reste synchrone. Même échelle que l'ancien
+       `W.loginManager` (0 = L1) — mesuré identique le 04/10/2026. */
+    let _rangEditeur = 0;
+    async function lireRang() {
+        try { _rangEditeur = (await obtenirSdk().State.getUserInfo())?.rank ?? 0; } catch (e) { /* on garde le dernier */ }
+    }
     function getLockStatus(venue) {
         if (!venue) return 'ok';
         const lockRank = venue.attributes.lockRank ?? 0; // 0=L1 … 5=L6, 6=L7 staff
-        const userRank = W?.loginManager?.user?.attributes?.rank ?? 0;
+        const userRank = _rangEditeur;
         if (lockRank >= 6) return 'hard';  // niveau 7 staff
         if (lockRank > userRank) return 'sae';
         return 'ok';
@@ -2459,10 +2465,65 @@
         XLSX.writeFile(wb, 'POI_Report_' + eventName.replace(/[\\/:*?"<>|\s]+/g, '_') + '_' + jour + '.xlsx');
     }
     // ────────────────────────────────────────────────────────────────────────
-    function centerAndLoad(permalink, vid, timeoutMs = 4000) {
-        return new Promise(resolve => {
+    /**
+     * UN LIEU LU AU SDK, SOUS LA FORME QUE TOUT LE SCRIPT CONNAÎT : `{attributes, boite}`.
+     *
+     * ⭐⭐⭐ C'EST UNE PHOTOGRAPHIE, PAS L'OBJET VIVANT du modèle de WME (`W.model`,
+     *    retiré le 24/11/2026). Elle ne suit pas les écritures : après une pose, le
+     *    lieu se RELIT (`appliquerLignes`), sans quoi l'aperçu montrerait l'avant.
+     * ⚠️ Les champs de parking n'existent pas dans le lieu du SDK : ils se lisent
+     *    un par un (`DataModel.Venues.ParkingLot`) et se rangent dans
+     *    `categoryAttributes.PARKING_LOT`, là où l'ancien modèle les tenait.
+     * ✅ Mesuré le 04/10/2026 à Avignon TGV : 32 lieux, dont 9 parkings — AUCUN
+     *    écart avec `W.model` sur les champs que le script compare.
+     * `boite` : l'emprise du lieu en degrés, pour cadrer la carte.
+     */
+    async function lireLieu(vid) {
+        const sdk = obtenirSdk();
+        let v = null;
+        try { v = await sdk.DataModel.Venues.getById({ venueId: vid }); } catch (e) { return null; }
+        if (!v) return null;
+        const attributs = Object.assign({}, v);
+        delete attributs.geometry;
+        if ((v.categories || []).includes('PARKING_LOT')) {
+            const P = sdk.DataModel.Venues.ParkingLot, q = { venueId: vid };
+            const lire = async (f) => { try { return await f(); } catch (e) { return undefined; } };
+            const parking = {
+                parkingType: await lire(() => P.getParkingLotType(q)),
+                hasTBR: await lire(() => P.isLotTypeDependentOnDayTime(q)),
+                costType: await lire(() => P.getCostType(q)),
+                paymentType: await lire(() => P.getPaymentMethods(q)),
+                lotType: await lire(() => P.getLotTypes(q)),
+                estimatedNumberOfSpots: await lire(() => P.getEstimatedNumberOfSpots(q)),
+                canExitWhileClosed: await lire(() => P.canExitWhileClosed(q)),
+            };
+            /* Une valeur que le SDK n'a pas su lire est ABSENTE, comme dans l'ancien modèle. */
+            Object.keys(parking).forEach((k) => { if (parking[k] === undefined) delete parking[k]; });
+            attributs.categoryAttributes = { PARKING_LOT: parking };
+        }
+        return { attributes: attributs, boite: boiteDeGeometrie(v.geometry) };
+    }
+
+    /** L'emprise d'une géométrie GeoJSON (point ou polygone), en degrés. */
+    function boiteDeGeometrie(g) {
+        const pts = [];
+        const parcourir = (c) => {
+            if (!Array.isArray(c)) return;
+            if (typeof c[0] === 'number') { pts.push(c); return; }
+            c.forEach(parcourir);
+        };
+        parcourir(g && g.coordinates);
+        if (!pts.length) return null;
+        return {
+            left: Math.min(...pts.map((p) => p[0])), bottom: Math.min(...pts.map((p) => p[1])),
+            right: Math.max(...pts.map((p) => p[0])), top: Math.max(...pts.map((p) => p[1])),
+        };
+    }
+
+    async function centerAndLoad(permalink, vid, timeoutMs = 4000) {
+        {
             const coords = parseLatLon(permalink);
-            if (!coords) return resolve(null);
+            if (!coords) return null;
             const { lat, lon } = coords;
 
             // Zoom de préchargement volontairement large (16-17) : le lat/lon d'un
@@ -2476,25 +2537,21 @@
             if (isNaN(z)) z = 17;
             z = Math.max(16, Math.min(z, 17));
 
-            const lonlat = new OpenLayers.LonLat(lon, lat).transform(
-                new OpenLayers.Projection('EPSG:4326'),
-                W.map.getProjectionObject()
-            );
-            W.map.setCenter(lonlat, z);
+            try {
+                await obtenirSdk().Map.setMapCenter({ lonLat: { lon: lon, lat: lat }, zoomLevel: z });
+            } catch (e) { return null; }
 
             const t0 = Date.now();
-            const poll = setInterval(() => {
-                const v = W.model.venues.getObjectById(vid);
+            for (;;) {
                 // « Chargé » = présent dans le modèle (`lieuPret`), avec ou sans nom.
-                // On n'exige PAS isEditable() : un POI verrouillé au-dessus du rang
+                // On n'exige PAS d'être éditable : un POI verrouillé au-dessus du rang
                 // de l'éditeur est bien chargé (cf. getLockStatus).
-                const ready = lieuPret(v);
-                if (ready || Date.now() - t0 > timeoutMs) {
-                    clearInterval(poll);
-                    resolve(ready ? v : null);
-                }
-            }, 80);
-        });
+                const v = await lireLieu(vid);
+                if (lieuPret(v)) return v;
+                if (Date.now() - t0 > timeoutMs) return null;
+                await new Promise((r) => setTimeout(r, 80));
+            }
+        }
     }
 
     // ==== banc:carte ====
@@ -2550,7 +2607,7 @@
             const p = pois[i];
             const vid = getVenueIdFromPermalink(p.perm);
             // Si déjà en mémoire, pas besoin de centrer
-            let venue = W.model.venues.getObjectById(vid);
+            let venue = await lireLieu(vid);
             if (!lieuPret(venue)) {
                 venue = await centerAndLoad(p.perm, vid);
             }
@@ -2577,45 +2634,34 @@
      * ⚠️ PLANCHER À ZOOM 12 : sous ce seuil WME décharge les objets, et l'on
      *    perdrait les venues qu'on vient de précharger.
      */
-    function cadrerSurLesLieux(venues) {
-        const boites = Object.keys(venues || {}).map((cle) => {
-            try {
-                const g = venues[cle] && venues[cle].getOLGeometry && venues[cle].getOLGeometry();
-                return g && g.getBounds ? g.getBounds() : null;
-            } catch (e) {
-                return null;
-            }
-        });
+    async function cadrerSurLesLieux(venues) {
+        const sdk = obtenirSdk();
+        const boites = Object.keys(venues || {}).map((cle) => (venues[cle] && venues[cle].boite) || null);
 
         const u = unionDesBoites(boites);
         if (!u) return false;
+        const centre = { lon: (u.left + u.right) / 2, lat: (u.bottom + u.top) / 2 };
 
         if (boiteSansEtendue(u)) {
-            W.map.setCenter(
-                new OpenLayers.LonLat((u.left + u.right) / 2, (u.bottom + u.top) / 2),
-                Math.min(Math.max(W.map.getZoom(), 17), 19)
-            );
+            const z = await sdk.Map.getZoomLevel();
+            await sdk.Map.setMapCenter({ lonLat: centre, zoomLevel: Math.min(Math.max(z, 17), 19) });
 
             return true;
         }
 
-        const etendue = new OpenLayers.Bounds(u.left, u.bottom, u.right, u.top);
-        if (typeof W.map.zoomToExtent === 'function') {
-            W.map.zoomToExtent(etendue);
+        {
+            await sdk.Map.zoomToExtent({ bbox: [u.left, u.bottom, u.right, u.top] });
             /* ⚠️⚠️ UN PLAFOND, ET PAS SEULEMENT UN PLANCHER. Cadrer sur UN SEUL lieu
                colle la carte au sol : l'echelle tombe a deux metres, on ne voit
                plus ni la rue, ni les lieux voisins, ni ou l'on est. Le plancher
                protege des lieux disperses, le plafond du lieu unique — et le
                second se rencontre bien plus souvent que le premier. */
-            const z = W.map.getZoom();
-            if (z < 12) W.map.setCenter(etendue.getCenterLonLat(), 12);
-            else if (z > 19) W.map.setCenter(etendue.getCenterLonLat(), 19);
+            const z = await sdk.Map.getZoomLevel();
+            if (z < 12) await sdk.Map.setMapCenter({ lonLat: centre, zoomLevel: 12 });
+            else if (z > 19) await sdk.Map.setMapCenter({ lonLat: centre, zoomLevel: 19 });
 
             return true;
         }
-        W.map.setCenter(etendue.getCenterLonLat());
-
-        return true;
     }
 
     // ==== banc:coque ====
@@ -3251,9 +3297,11 @@
     }
 
     async function initScript() {
-        _peuLang = detectLang();
+        let localeWme = '';
+        try { localeWme = (await obtenirSdk().Settings.getLocale())?.localeCode || ''; } catch (e) { /* langue du navigateur */ }
+        _peuLang = detectLang(localeWme);
         injectCSS();
-        const { tabLabel, tabPane } = W.userscripts.registerSidebarTab(scriptId);
+        const { tabLabel, tabPane } = await obtenirSdk().Sidebar.registerScriptTab();
         // Icône (pin) à la place du nom, nom conservé en infobulle.
         tabLabel.textContent = '';
         tabLabel.style.display = 'flex';
@@ -3268,7 +3316,8 @@
         tabIcon.style.display = 'block';
         tabLabel.appendChild(tabIcon);
         tabLabel.title = t('tabTitle');
-        await W.userscripts.waitForElementConnected(tabPane);
+        /* L'onglet du SDK s'insère dans le panneau un peu après : on attend qu'il y soit (2 s au plus). */
+        for (let i = 0; i < 40 && !tabPane.isConnected; i++) await new Promise((r) => setTimeout(r, 50));
         // Le conteneur d'onglet (<a> parent) est étiré sur toute la hauteur de
         // l'onglet ; on le centre aussi pour placer l'icône au milieu vertical
         // (sinon elle se colle en haut). Vérifié en direct dans WME.
@@ -4026,7 +4075,7 @@
     async function poserUnLieu(item, env) {
         /* ⭐ La carte ne bouge que si le lieu n'est pas déjà en mémoire : le
            préchargement vient presque toujours de le charger. */
-        let venue = env.lieuCharge(item.vid);
+        let venue = await env.lieuCharge(item.vid);
         if (!lieuPret(venue)) venue = await env.charger(item.perm, item.vid);
         if (!lieuPret(venue)) {
             return { echec: true, resultat: { oldName: '', newName: item.nom, oldDesc: '', newDesc: item.desc,
@@ -4038,7 +4087,9 @@
         /* ⚠️ Les noms alternatifs viennent du classeur s'il en porte, sinon on
            REPASSE ceux du lieu tels quels : ne jamais les perdre au passage. */
         const aPoser = (item.valeurs && item.valeurs.aPoser) || {};
-        env.ecrireHerite(venue, {
+        /* `await` : en mode async, un refus du SDK est une promesse rejetée — qui remonte
+           alors à poserLesLignes et classe la ligne en erreur, au lieu de se perdre. */
+        await env.ecrireHerite(venue, {
             id: venue.attributes.id,
             name: item.nom,
             description: item.desc,
@@ -4058,7 +4109,7 @@
            rien ne dit encore ce que WME fait de la modification.
            ⚠️ Un champ à poser jamais envoyé (hors liste blanche) reste un MANQUE :
               la relecture le trouve absent, et `ignores` le rappelle. */
-        const relu = env.relire(item.vid) || {};
+        const relu = (await env.relire(item.vid)) || {};
         const manques = [];
         if ((relu.name || '') !== item.nom) manques.push('name');
         if ((relu.description || '') !== item.desc) manques.push('description');
@@ -4127,15 +4178,19 @@
     }
     // ==== /banc:poser ====
 
-    /** Ce que la pose demande a WME, dans l'editeur. */
+    /** Ce que la pose demande a WME, dans l'editeur — tout par le SDK (0.54.00). */
     function environnementDePose() {
-        const UpdateObject = require('Waze/Action/UpdateObject');
         return {
-            lieuCharge: (vid) => W.model.venues.getObjectById(vid),
+            lieuCharge: (vid) => lireLieu(vid),
             charger: (perm, vid) => centerAndLoad(perm, vid, 3000),
-            ecrireHerite: (venue, champs) => W.model.actionManager.add(new UpdateObject(venue, champs)),
+            /* ⚠️ La description VIDE part aussi : c'est ainsi qu'un onglet « hors
+               événement » remet un lieu à nu (251 descriptions vides sur 342 dans ACO). */
+            ecrireHerite: (venue, champs) => obtenirSdk().DataModel.Venues.updateVenue({
+                venueId: venue.attributes.id,
+                name: champs.name, description: champs.description, aliases: champs.aliases,
+            }),
             ecrireSdk: (vid, maj) => obtenirSdk().DataModel.Venues.updateVenue(Object.assign({ venueId: vid }, maj)),
-            relire: (vid) => { const v = W.model.venues.getObjectById(vid); return v ? v.attributes : null; },
+            relire: async (vid) => { const v = await lireLieu(vid); return v ? v.attributes : null; },
         };
     }
 
@@ -4189,14 +4244,17 @@
            faux, sur un fichier juste. On l'allume donc, on attend que WME serve
            les lieux, et l'on RELIT : un clic qui n'a rien allumé ne vaut pas un
            calque allumé. */
-        const calque = W.map.getLayersByName('venues')[0];
-        if (calque && !calque.getVisibility()) {
+        /* `null` = on ne sait pas lire : on ne bloque pas sur une incertitude. */
+        const lieuxVisibles = async () => {
+            try { return await obtenirSdk().Map.isLayerVisible({ layerName: 'venues' }); } catch (e) { return null; }
+        };
+        if ((await lieuxVisibles()) === false) {
             const bascule = document.querySelector('#layer-switcher-group_places');
             if (bascule) {
                 bascule.click();
                 await new Promise((r) => setTimeout(r, 1500));
             }
-            if (!bascule || !calque.getVisibility()) {
+            if (!bascule || (await lieuxVisibles()) === false) {
                 ouvrirOverlay();
                 montrerGuide('guideOnglet', 'guideOngletSuite');
                 messagePassager(t('layerOffMsg'));
@@ -4206,6 +4264,7 @@
 
         ouvrirOverlay();
         occuper(true);
+        await lireRang();
         let venueMap = null;
         const annule = { cancelled: false };
         try {
@@ -4224,7 +4283,7 @@
         if (annule.cancelled) { montrerGuide('guideOnglet', 'guideOngletSuite'); return; }
 
         // ⭐ ON RESTE SUR LE PERIMETRE qu'on vient de parcourir.
-        cadrerSurLesLieux(venueMap);
+        try { await cadrerSurLesLieux(venueMap); } catch (e) { /* la carte reste où elle est */ }
 
         _apercu = { eventName: eventName, pois: pois, venueMap: venueMap, resultats: null, vues: null };
         /* ⚠️ LE MENU DIT CE QUI EST OUVERT. Ouvert par un autre chemin que lui,
@@ -4470,7 +4529,7 @@
 
         const ov = document.getElementById('peu-overlay');
         const corps = ov.querySelector('#peu-body');
-        const avant = nbModifsEnAttente();
+        const avant = await nbModifsEnAttente();
         occuper(true);
         /* ⚠️ EN TETE DU CORPS : la liste peut etre longue, et une barre posee en
            bas d une zone defilante travaille hors de vue. */
@@ -4492,7 +4551,7 @@
             occuper(false);
         }
 
-        try { cadrerSurLesLieux(apercu.venueMap); } catch (e) { /* la carte reste où elle est */ }
+        try { await cadrerSurLesLieux(apercu.venueMap); } catch (e) { /* la carte reste où elle est */ }
         apercu.resultats = bilan.resultats;
 
         /* ⭐ UNE LIGNE POSÉE SE DÉCOCHE, ET LE DIT : recliquer ne repose que ce qui
@@ -4500,6 +4559,13 @@
         /* ⚠️ La ligne se relit sur le lieu VIVANT, qui porte désormais les
            valeurs posées : une pose PARTIELLE montre alors ce qui reste à poser,
            au lieu d'un ✔ qui mentirait. */
+        /* ⚠️ LE LIEU EST UNE PHOTOGRAPHIE (`lireLieu`) : on la reprend après la pose,
+           sans quoi la ligne se comparerait à l'état d'AVANT. */
+        for (let i = 0; i < bilan.resultats.length; i++) {
+            const r = bilan.resultats[i];
+            if (r.status !== 'applied' && r.status !== 'partial') continue;
+            try { const frais = await lireLieu(items[i].vid); if (frais) apercu.venueMap[items[i].vid] = frais; } catch (e) { /* on garde l'ancienne */ }
+        }
         bilan.resultats.forEach((r, i) => {
             if (r.status !== 'applied' && r.status !== 'partial') return;
             const idx = items[i].idx;
@@ -4516,7 +4582,7 @@
             recordFileApplied(_fichierCourant);
             _rafraichirHistorique();
         }
-        montrerBilan(corps, bilan, erreurGenerale, avant);
+        montrerBilan(corps, bilan, erreurGenerale, avant, await nbModifsEnAttente());
         majPied();
     }
 
@@ -4527,13 +4593,12 @@
      * ⚠️ « Applique » ne veut pas dire « enregistre » : la confusion coute une
      *    session de travail perdue, et elle ne se voit qu'au rechargement.
      */
-    function montrerBilan(corps, bilan, erreurGenerale, avant) {
+    function montrerBilan(corps, bilan, erreurGenerale, avant, apres) {
         const r = bilan.resultats;
         const compte = (s) => r.filter((x) => x.status === s).length;
         const poses = compte('applied'), partiels = compte('partial');
         const echecs = r.filter((x) => x.status === 'timeout' || x.status === 'erreur');
         const sae = r.filter((x) => x.verrou === 'sae' && (x.status === 'applied' || x.status === 'partial')).length;
-        const apres = nbModifsEnAttente();
         /* ⚠️ LE CHIFFRE DIT CE QUE CETTE POSE A AJOUTÉ, et rien quand on ne le sait
            pas : « 0 en attente » sur une erreur de lecture rassurait à tort, et
            toute la pile de WME comptait comme si le script l'avait remplie. */
@@ -4580,22 +4645,15 @@
         div.focus({ preventScroll: true });
     }
 
-    /** Le nombre d'actions dans la pile de WME, ou `null` si on ne peut pas le lire. */
-    function nbModifsEnAttente() {
-        try {
-            const am = W.model.actionManager;
-            if (typeof am.unsavedActionsNum === 'function') return am.unsavedActionsNum();
-            return am.getActions().length;
-        } catch (e) { return null; }
+    /** Le nombre de modifications non enregistrées, ou `null` si on ne peut pas le lire. */
+    async function nbModifsEnAttente() {
+        try { return await obtenirSdk().Editing.getUnsavedChangesCount(); } catch (e) { return null; }
     }
 
     let _peuInited = false;
     function _peuInit() {
         if (_peuInited) return;
         _peuInited = true;
-        W = pw.W;
-        OpenLayers = pw.OpenLayers;
-        require = pw.require;
         initScript().catch((e) => console.error('[WPEU] démarrage', e));
     }
 
@@ -4605,7 +4663,7 @@
     (() => {
         let lance = false;
         const go = () => { if (lance) return; lance = true; clearInterval(minuterie); Promise.resolve(pw.SDK_INITIALIZED).then(_peuInit); };
-        const pret = () => !!(pw.SDK_INITIALIZED || (pw.W && pw.W.userscripts && pw.W.userscripts.state && pw.W.userscripts.state.isReady));
+        const pret = () => !!pw.SDK_INITIALIZED;
         const minuterie = setInterval(() => { if (pret()) go(); }, 300);
         if (pret()) go();
         document.addEventListener('wme-initialized', go, { once: true });

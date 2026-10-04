@@ -79,7 +79,8 @@ if (!apercu) {
        faux, sur un fichier juste. Ce garde-fou vivait sur le bouton du panneau ;
        il a demenage avec le geste, et c'est le genre de chose qu'on perd. */
     verifier('le calque « Lieux » est allume avant de balayer',
-        true, apercu.includes("getLayersByName('venues')"));
+        // 0.54.00 : la visibilité se lit par le SDK (W retiré de WME le 24/11/2026).
+        true, apercu.includes("isLayerVisible({ layerName: 'venues' })") && apercu.includes('#layer-switcher-group_places'));
     verifier('et son repli parle quand la bascule est introuvable',
         true, apercu.includes("t('layerOffMsg')"));
 }
