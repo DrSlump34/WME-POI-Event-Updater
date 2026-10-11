@@ -110,7 +110,12 @@ const pageGetWmeSdk = (o) => {
 const BAC = process.argv.includes('--bac-a-sable');
 if (BAC) {
     globalThis.unsafeWindow = { getWmeSdk: pageGetWmeSdk, SDK_INITIALIZED: Promise.resolve() };
-    globalThis.GM_xmlhttpRequest = () => { journal.push('GM_xmlhttpRequest'); };
+    // 0.54.01 : la lecture de version-min.json (version minimale) part AVANT le démarrage, qui l'attend.
+    // La doublure y répond « erreur réseau » — le script doit alors démarrer — et la compte à part.
+    globalThis.GM_xmlhttpRequest = (o) => {
+        if (o && /version-min\.json/.test(o.url)) { journal.push('versionMin'); if (o.onerror) o.onerror(); return; }
+        journal.push('GM_xmlhttpRequest');
+    };
     globalThis.GM_info = { script: { version: '0.53.00' } };
 } else {
     globalThis.getWmeSdk = pageGetWmeSdk;
@@ -145,6 +150,10 @@ if (erreur) {
    rien non plus. On exige que l'onglet ait été enregistré. */
 if (!journal.includes('onglet')) {
     console.error('\n✖ Le script n’a rien construit : l’onglet n’a jamais été enregistré.\n');
+    process.exit(1);
+}
+if (BAC && journal.filter((j) => j === 'versionMin').length !== 1) {
+    console.error('\n✖ La lecture de la version minimale devait partir UNE fois : ' + journal.filter((j) => j === 'versionMin').length + '.\n');
     process.exit(1);
 }
 if (BAC && journal.filter((j) => j === 'GM_xmlhttpRequest').length !== 1) {
