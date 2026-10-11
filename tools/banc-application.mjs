@@ -208,6 +208,24 @@ const attendre = async () => {
         verifier('… avec le message du SDK', 'updateVenue refusé', bilan.resultats[1].erreur);
     }
 
+    /* 3.5 ter ⛔ (0.55.00, audit de la doctrine France, constat 4) : le bouton d'ARRÊT.
+       `doitArreter` est relu avant chaque lieu ; arrêté après le deuxième, le troisième
+       et le quatrième ne sont jamais touchés, et `interrompu` le dit. */
+    if (typeof X.poserLesLignes === 'function') {
+        w = fauxWme([lieu('11'), lieu('12'), lieu('13'), lieu('14')]);
+        const annule = { cancelled: false }, recus = [];
+        const bilan = await X.poserLesLignes(
+            [item('11', 'A', '', {}), item('12', 'B', '', {}), item('13', 'C', '', {}), item('14', 'D', '', {})],
+            w.env, (n, total, r) => { recus.push(r && r.vid); if (n === 2) annule.cancelled = true; },
+            () => annule.cancelled);
+        verifier('⛔ Arrêt après le 2e lieu : deux résultats', ['applied', 'applied'], bilan.resultats.map((x) => x.status));
+        verifier('… deux lignes non tentées', 2, bilan.interrompu);
+        verifier('… les lieux 13 et 14 jamais touchés', false, w.journal.some((j) => /:1[34]$/.test(j)));
+        verifier('… surAvance reçoit le résultat du lieu (réservation au quota)', ['11', '12'], recus);
+        const sans = await X.poserLesLignes([item('11', 'A', '', {})], fauxWme([lieu('11')]).env);
+        verifier('… sans arrêt demandé : interrompu = 0', 0, sans.interrompu);
+    }
+
     /* 3.6 ⛔ Un lieu sans nom est un lieu chargé. */
     if (typeof X.lieuPret !== 'function') {
         echecs.push('⛔ lieuPret absente : un lieu sans nom est déclaré introuvable');

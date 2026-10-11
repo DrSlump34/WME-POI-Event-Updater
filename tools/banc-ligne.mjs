@@ -104,6 +104,16 @@ const fige = ligneApercu(avec({ charge: false }));
 verifier('un lieu introuvable : la case est desactivee', true, /type="checkbox"[^>]*disabled/.test(fige));
 verifier('un lieu introuvable : les champs sont desactives', 2, (fige.match(/ disabled/g) || []).length - 1);
 
+/* ⛔ 0.55.00 (audit de la doctrine France, constat 3) : un lieu verrouillé
+   AU-DESSUS DU RANG se fige comme un verrou du staff — y compris quand il
+   retire des valeurs (état « perte », qui passait avant le SaE). */
+const saeDiff = ligneApercu(avec({ verrou: 'sae', nomChange: true, champsDiff: 2 }));
+verifier('⛔ SaE : la case est desactivee', true, /type="checkbox"[^>]*disabled/.test(saeDiff));
+verifier('⛔ SaE : les champs sont desactives', 2, (saeDiff.match(/ disabled/g) || []).length - 1);
+const saePerte = ligneApercu(avec({ verrou: 'sae', pertes: 2 }));
+verifier('⛔ SaE qui retire (etat « perte ») : la case est desactivee aussi', true, /type="checkbox"[^>]*disabled/.test(saePerte));
+verifier('un lieu ordinaire reste cochable', false, /type="checkbox"[^>]*disabled/.test(ligneApercu(avec({ nomChange: true }))));
+
 /* ⚠️ TOUT CE QUI VIENT DU CLASSEUR EST ECHAPPE : un nom de lieu est une donnee
    externe, et il finit dans un attribut title=. */
 const vicieux = ligneApercu(avec({ nom: 'A"><script>x</script>', ancienNom: 'B" onmouseover="y' }));

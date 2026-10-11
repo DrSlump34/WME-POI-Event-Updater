@@ -85,6 +85,8 @@ const fauxSdk = {
     State: { getUserInfo: async({ rank: 4 }) },
     Map: { getZoomLevel: async(17), setMapCenter: async(), zoomToExtent: async(), isLayerVisible: async(true) },
     Editing: { getUnsavedChangesCount: async(0) },
+    /* 0.55.00 : le quota écoute `wme-save-finished` (confirmation à l'enregistrement). */
+    Events: { on: (o) => { if (!o || o.eventName !== 'wme-save-finished' || typeof o.eventHandler !== 'function') throw new Error('Events.on : appel inattendu'); journal.push('événement'); } },
     DataModel: { Venues: { getById: async(null), updateVenue: async(), ParkingLot: {} } },
 };
 const sdkStrict = (o, nom) => new Proxy(o, {

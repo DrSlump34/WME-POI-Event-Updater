@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.54.01
+// @version      0.55.00
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -15,6 +15,11 @@
 // @match        https://waze.com/*/editor*
 // @match        https://beta.waze.com/*/editor*
 // @match        https://beta.waze.com/fr/editor?env=row*
+// @exclude      https://www.waze.com/*user/*editor/*
+// @exclude      https://www.waze.com/discuss/*
+// @exclude      https://www.waze.com/editor/sdk/*
+// @exclude      https://beta.waze.com/*user/*editor/*
+// @exclude      https://beta.waze.com/editor/sdk/*
 // @homepageURL  https://github.com/DrSlump34/WME-POI-Event-Updater
 // @supportURL   https://www.waze.com/discuss/t/script-wme-poi-event-updater/404593
 // @grant        GM_xmlhttpRequest
@@ -121,7 +126,7 @@
                 aideRelireT:'Relire et appliquer',
                 aideRelire:'Chaque ligne montre l’avant (barré) et l’après. Ce qui change est coché d’office ; une retouche dans l’aperçu re-décide la case.\nAppliquer écrit dans l’éditeur sans enregistrer : relisez sur la carte, puis cliquez sur Enregistrer. Les lieux en échec restent cochés, pour réessayer.',
                 aideEtatsT:'Les états d’une ligne',
-                aideEtats:'Chiffre vert : champs à poser.\n-n orange : appliquer RETIRERAIT n valeurs — jamais coché d’office.\nSaE : lieu verrouillé au-dessus de votre niveau, la modification part en suggestion.\nL7 : verrou du staff, rien ne se pose.\n? : lieu introuvable.\n✔ : posé, en attente d’enregistrement.',
+                aideEtats:'Chiffre vert : champs à poser.\n-n orange : appliquer RETIRERAIT n valeurs — jamais coché d’office.\nSaE : lieu verrouillé au-dessus de votre niveau, la ligne est figée, rien ne se pose.\nL7 : verrou du staff, rien ne se pose.\n? : lieu introuvable.\n✔ : posé, en attente d’enregistrement.',
                 sbEcrit:'✍️ Appliquer écrit dans l’éditeur ; le script n’enregistre jamais.',
                 majDispo:(v)=>`Nouvelle version ${v} disponible.`, majInstaller:'Installer',
                 cancelTitle:'Interrompre : ce qui est déjà lu est conservé',
@@ -147,7 +152,7 @@
                 badgeRienTitle:'Rien à poser : le lieu porte déjà ces valeurs',
                 badgeOffTitle:'Lieu introuvable dans l’éditeur : rien ne peut être posé',
                 badgePoseTitle:'Posé dans l’éditeur — en attente d’enregistrement',
-                badgeSaeTitle:'Lieu verrouillé au-dessus de votre niveau : la modification passera en suggestion (SaE)',
+                badgeSaeTitle:'Lieu verrouillé au-dessus de votre niveau : la ligne est figée, rien ne se pose (SaE)',
                 lockHardTitle:'Verrou niveau 7 (staff Waze) — édition impossible',
                 noFile:'Aucun fichier choisi',
                 historyTitle:'Fichiers récents', histLoaded:'📂 Chargé :', histApplied:'✔ Appliqué :',
@@ -162,6 +167,14 @@
                 loadingPois:(n,total)=>`Chargement des lieux… ${n} / ${total}`,
                 applying:(n,total)=>`Application… ${n} / ${total}`,
                 cancelBtn:'Annuler',
+                quotaReste:(n,max)=>`Quota : ${n} / ${max} lieux restants sur l’heure glissante`,
+                quotaPlein:(h)=>`Quota atteint : reprise à ${h}`,
+                quotaTitre:(max)=>`Au plus ${max} lieux modifiés par heure glissante et par éditeur (doctrine France des scripts). Une modification compte à l’enregistrement ; annulée avant, elle est rendue.`,
+                quotaAltere:'Quota illisible : le script a été modifié. Appliquer est bloqué.',
+                btnApplyQuota:(k,n)=>`Appliquer ${k} des ${n} lignes cochées`,
+                bilanQuota:(n,h)=>`Quota atteint : ${n} ligne(s) cochée(s) non posée(s), restées cochées. Reprise à ${h}.`,
+                bilanInterrompu:(n)=>`Pose arrêtée : ${n} ligne(s) non posée(s), restées cochées.`,
+                cancelPoseTitle:'Arrêter la pose : ce qui est déjà posé reste dans l’éditeur, sans être enregistré',
                 noPoisLoaded:'✖ Aucun lieu valide chargé',
                 anomalies:(n)=>`⚠️ ${n} anomalie${n>1?'s':''} dans le classeur`,
                 btnRetry:(n)=>`🔄 Réessayer (${n} lieu${n>1?'x':''})`,
@@ -245,7 +258,7 @@
                 aideRelireT:'Review and apply',
                 aideRelire:'Each row shows the before (struck through) and the after. What changes is ticked by default; editing a value in the preview decides the box again.\nApply writes into the editor without saving: review on the map, then click Save. Places that failed stay ticked, to retry.',
                 aideEtatsT:'Row states',
-                aideEtats:'Green number: fields to write.\nOrange -n: applying would REMOVE n values — never ticked by default.\nSaE: place locked above your level, the change goes as a suggestion.\nL7: staff lock, nothing is written.\n?: place not found.\n✔: written, waiting to be saved.',
+                aideEtats:'Green number: fields to write.\nOrange -n: applying would REMOVE n values — never ticked by default.\nSaE: place locked above your level, the row is frozen, nothing is written.\nL7: staff lock, nothing is written.\n?: place not found.\n✔: written, waiting to be saved.',
                 sbEcrit:'✍️ Apply writes into the editor; the script never saves.',
                 majDispo:(v)=>`New version ${v} available.`, majInstaller:'Install',
                 cancelTitle:'Stop: what is already loaded is kept',
@@ -271,7 +284,7 @@
                 badgeRienTitle:'Nothing to write: the place already carries these values',
                 badgeOffTitle:'Place not found in the editor: nothing can be written',
                 badgePoseTitle:'Written into the editor — waiting to be saved',
-                badgeSaeTitle:'Place locked above your level: the change will go as a suggestion (SaE)',
+                badgeSaeTitle:'Place locked above your level: the row is frozen, nothing is written (SaE)',
                 lockHardTitle:'Level 7 lock (Waze staff) — editing not possible',
                 noFile:'No file chosen',
                 historyTitle:'Recent files', histLoaded:'📂 Loaded:', histApplied:'✔ Applied:',
@@ -286,6 +299,14 @@
                 loadingPois:(n,total)=>`Loading places… ${n} / ${total}`,
                 applying:(n,total)=>`Applying… ${n} / ${total}`,
                 cancelBtn:'Cancel',
+                quotaReste:(n,max)=>`Quota: ${n} / ${max} places left in the rolling hour`,
+                quotaPlein:(h)=>`Quota reached: resumes at ${h}`,
+                quotaTitre:(max)=>`At most ${max} places changed per rolling hour and per editor (France scripts doctrine). A change counts when saved; undone before saving, it is given back.`,
+                quotaAltere:'Quota unreadable: the script has been modified. Apply is blocked.',
+                btnApplyQuota:(k,n)=>`Apply ${k} of the ${n} ticked rows`,
+                bilanQuota:(n,h)=>`Quota reached: ${n} ticked row(s) not written, left ticked. Resumes at ${h}.`,
+                bilanInterrompu:(n)=>`Writing stopped: ${n} row(s) not written, left ticked.`,
+                cancelPoseTitle:'Stop writing: what is already written stays in the editor, unsaved',
                 noPoisLoaded:'✖ No valid place loaded',
                 anomalies:(n)=>`⚠️ ${n} issue${n>1?'s':''} in the workbook`,
                 btnRetry:(n)=>`🔄 Retry (${n} place${n>1?'s':''})`,
@@ -369,7 +390,7 @@
                 aideRelireT:'Prüfen und anwenden',
                 aideRelire:'Jede Zeile zeigt das Vorher (durchgestrichen) und das Nachher. Was sich ändert, ist vorab angehakt; eine Änderung in der Vorschau entscheidet das Häkchen neu.\nAnwenden schreibt in den Editor, ohne zu speichern: auf der Karte prüfen, dann Speichern klicken. Fehlgeschlagene Orte bleiben angehakt, zum erneuten Versuch.',
                 aideEtatsT:'Zeilenstatus',
-                aideEtats:'Grüne Zahl: zu schreibende Felder.\nOrange -n: Anwenden würde n Werte ENTFERNEN — nie vorab angehakt.\nSaE: Ort über Ihrer Stufe gesperrt, die Änderung geht als Vorschlag.\nL7: Staff-Sperre, nichts wird geschrieben.\n?: Ort nicht gefunden.\n✔: geschrieben, wartet auf Speichern.',
+                aideEtats:'Grüne Zahl: zu schreibende Felder.\nOrange -n: Anwenden würde n Werte ENTFERNEN — nie vorab angehakt.\nSaE: Ort über Ihrer Stufe gesperrt, die Zeile ist gesperrt, nichts wird geschrieben.\nL7: Staff-Sperre, nichts wird geschrieben.\n?: Ort nicht gefunden.\n✔: geschrieben, wartet auf Speichern.',
                 sbEcrit:'✍️ Anwenden schreibt in den Editor; das Skript speichert nie.',
                 majDispo:(v)=>`Neue Version ${v} verfügbar.`, majInstaller:'Installieren',
                 cancelTitle:'Abbrechen: bereits Geladenes bleibt erhalten',
@@ -395,7 +416,7 @@
                 badgeRienTitle:'Nichts zu schreiben: der Ort trägt diese Werte bereits',
                 badgeOffTitle:'Ort im Editor nicht gefunden: nichts kann geschrieben werden',
                 badgePoseTitle:'In den Editor geschrieben — wartet auf Speichern',
-                badgeSaeTitle:'Ort über Ihrer Stufe gesperrt: die Änderung geht als Vorschlag (SaE)',
+                badgeSaeTitle:'Ort über Ihrer Stufe gesperrt: die Zeile ist gesperrt, nichts wird geschrieben (SaE)',
                 lockHardTitle:'Sperre Stufe 7 (Waze-Staff) — Bearbeiten nicht möglich',
                 noFile:'Keine Datei gewählt',
                 historyTitle:'Letzte Dateien', histLoaded:'📂 Geladen:', histApplied:'✔ Angewendet:',
@@ -410,6 +431,14 @@
                 loadingPois:(n,total)=>`Orte werden geladen… ${n} / ${total}`,
                 applying:(n,total)=>`Wird angewendet… ${n} / ${total}`,
                 cancelBtn:'Abbrechen',
+                quotaReste:(n,max)=>`Kontingent: ${n} / ${max} Orte übrig in der gleitenden Stunde`,
+                quotaPlein:(h)=>`Kontingent erreicht: weiter um ${h}`,
+                quotaTitre:(max)=>`Höchstens ${max} geänderte Orte pro gleitender Stunde und Editor (Skript-Doktrin Frankreich). Eine Änderung zählt beim Speichern; vorher rückgängig gemacht, wird sie zurückgegeben.`,
+                quotaAltere:'Kontingent unlesbar: das Skript wurde verändert. Anwenden ist gesperrt.',
+                btnApplyQuota:(k,n)=>`${k} der ${n} angehakten Zeilen anwenden`,
+                bilanQuota:(n,h)=>`Kontingent erreicht: ${n} angehakte Zeile(n) nicht geschrieben, bleiben angehakt. Weiter um ${h}.`,
+                bilanInterrompu:(n)=>`Schreiben abgebrochen: ${n} Zeile(n) nicht geschrieben, bleiben angehakt.`,
+                cancelPoseTitle:'Schreiben abbrechen: bereits Geschriebenes bleibt ungespeichert im Editor',
                 noPoisLoaded:'✖ Kein gültiger Ort geladen',
                 anomalies:(n)=>`⚠️ ${n} Auffälligkeit${n>1?'en':''} in der Arbeitsmappe`,
                 btnRetry:(n)=>`🔄 Erneut versuchen (${n} Ort${n>1?'e':''})`,
@@ -493,7 +522,7 @@
                 aideRelireT:'Revisar y aplicar',
                 aideRelire:'Cada fila muestra el antes (tachado) y el después. Lo que cambia se marca de oficio; retocar un valor en la vista previa vuelve a decidir la casilla.\nAplicar escribe en el editor sin guardar: revise en el mapa y luego haga clic en Guardar. Los lugares con error siguen marcados, para reintentar.',
                 aideEtatsT:'Estados de una fila',
-                aideEtats:'Número verde: campos que se escribirán.\n-n naranja: aplicar QUITARÍA n valores — nunca se marca de oficio.\nSaE: lugar bloqueado por encima de su nivel, el cambio va como sugerencia.\nL7: bloqueo del staff, no se escribe nada.\n?: lugar no encontrado.\n✔: escrito, pendiente de guardar.',
+                aideEtats:'Número verde: campos que se escribirán.\n-n naranja: aplicar QUITARÍA n valores — nunca se marca de oficio.\nSaE: lugar bloqueado por encima de su nivel, la fila está congelada, no se escribe nada.\nL7: bloqueo del staff, no se escribe nada.\n?: lugar no encontrado.\n✔: escrito, pendiente de guardar.',
                 sbEcrit:'✍️ Aplicar escribe en el editor; el script nunca guarda.',
                 majDispo:(v)=>`Nueva versión ${v} disponible.`, majInstaller:'Instalar',
                 cancelTitle:'Interrumpir: lo ya cargado se conserva',
@@ -519,7 +548,7 @@
                 badgeRienTitle:'Nada que escribir: el lugar ya tiene estos valores',
                 badgeOffTitle:'Lugar no encontrado en el editor: no se puede escribir nada',
                 badgePoseTitle:'Escrito en el editor — pendiente de guardar',
-                badgeSaeTitle:'Lugar bloqueado por encima de su nivel: el cambio irá como sugerencia (SaE)',
+                badgeSaeTitle:'Lugar bloqueado por encima de su nivel: la fila está congelada, no se escribe nada (SaE)',
                 lockHardTitle:'Bloqueo de nivel 7 (staff de Waze) — no se puede editar',
                 noFile:'Ningún archivo elegido',
                 historyTitle:'Archivos recientes', histLoaded:'📂 Cargado:', histApplied:'✔ Aplicado:',
@@ -534,6 +563,14 @@
                 loadingPois:(n,total)=>`Cargando lugares… ${n} / ${total}`,
                 applying:(n,total)=>`Aplicando… ${n} / ${total}`,
                 cancelBtn:'Cancelar',
+                quotaReste:(n,max)=>`Cuota: quedan ${n} / ${max} lugares en la hora móvil`,
+                quotaPlein:(h)=>`Cuota alcanzada: se reanuda a las ${h}`,
+                quotaTitre:(max)=>`Como máximo ${max} lugares modificados por hora móvil y por editor (doctrina de scripts de Francia). Un cambio cuenta al guardar; deshecho antes, se devuelve.`,
+                quotaAltere:'Cuota ilegible: el script ha sido modificado. Aplicar está bloqueado.',
+                btnApplyQuota:(k,n)=>`Aplicar ${k} de las ${n} filas marcadas`,
+                bilanQuota:(n,h)=>`Cuota alcanzada: ${n} fila(s) marcada(s) sin escribir, siguen marcadas. Se reanuda a las ${h}.`,
+                bilanInterrompu:(n)=>`Escritura detenida: ${n} fila(s) sin escribir, siguen marcadas.`,
+                cancelPoseTitle:'Detener la escritura: lo ya escrito queda en el editor, sin guardar',
                 noPoisLoaded:'✖ No se cargó ningún lugar válido',
                 anomalies:(n)=>`⚠️ ${n} anomalía${n>1?'s':''} en el libro`,
                 btnRetry:(n)=>`🔄 Reintentar (${n} lugar${n>1?'es':''})`,
@@ -617,7 +654,7 @@
                 aideRelireT:'Rileggere e applicare',
                 aideRelire:'Ogni riga mostra il prima (barrato) e il dopo. Ciò che cambia è selezionato d’ufficio; ritoccare un valore nell’anteprima ridecide la casella.\nApplica scrive nell’editor senza salvare: rileggi sulla mappa, poi fai clic su Salva. I luoghi in errore restano selezionati, per riprovare.',
                 aideEtatsT:'Gli stati di una riga',
-                aideEtats:'Numero verde: campi da scrivere.\n-n arancione: applicare RIMUOVEREBBE n valori — mai selezionata d’ufficio.\nSaE: luogo bloccato sopra il tuo livello, la modifica va come suggerimento.\nL7: blocco dello staff, non si scrive nulla.\n?: luogo non trovato.\n✔: scritto, in attesa di salvataggio.',
+                aideEtats:'Numero verde: campi da scrivere.\n-n arancione: applicare RIMUOVEREBBE n valori — mai selezionata d’ufficio.\nSaE: luogo bloccato sopra il tuo livello, la riga è bloccata, non si scrive nulla.\nL7: blocco dello staff, non si scrive nulla.\n?: luogo non trovato.\n✔: scritto, in attesa di salvataggio.',
                 sbEcrit:'✍️ Applica scrive nell’editor; lo script non salva mai.',
                 majDispo:(v)=>`Nuova versione ${v} disponibile.`, majInstaller:'Installa',
                 cancelTitle:'Interrompi: ciò che è già caricato resta',
@@ -643,7 +680,7 @@
                 badgeRienTitle:'Nulla da scrivere: il luogo ha già questi valori',
                 badgeOffTitle:'Luogo non trovato nell’editor: non si può scrivere nulla',
                 badgePoseTitle:'Scritto nell’editor — in attesa di salvataggio',
-                badgeSaeTitle:'Luogo bloccato sopra il tuo livello: la modifica andrà come suggerimento (SaE)',
+                badgeSaeTitle:'Luogo bloccato sopra il tuo livello: la riga è bloccata, non si scrive nulla (SaE)',
                 lockHardTitle:'Blocco livello 7 (staff Waze) — modifica impossibile',
                 noFile:'Nessun file scelto',
                 historyTitle:'File recenti', histLoaded:'📂 Caricato:', histApplied:'✔ Applicato:',
@@ -658,6 +695,14 @@
                 loadingPois:(n,total)=>`Caricamento dei luoghi… ${n} / ${total}`,
                 applying:(n,total)=>`Applicazione… ${n} / ${total}`,
                 cancelBtn:'Annulla',
+                quotaReste:(n,max)=>`Quota: ${n} / ${max} luoghi rimasti nell’ora mobile`,
+                quotaPlein:(h)=>`Quota raggiunta: si riprende alle ${h}`,
+                quotaTitre:(max)=>`Al massimo ${max} luoghi modificati per ora mobile e per editor (dottrina script Francia). Una modifica conta al salvataggio; annullata prima, viene restituita.`,
+                quotaAltere:'Quota illeggibile: lo script è stato modificato. Applica è bloccato.',
+                btnApplyQuota:(k,n)=>`Applica ${k} delle ${n} righe selezionate`,
+                bilanQuota:(n,h)=>`Quota raggiunta: righe selezionate non scritte: ${n}, restano selezionate. Si riprende alle ${h}.`,
+                bilanInterrompu:(n)=>`Scrittura interrotta: righe non scritte: ${n}, restano selezionate.`,
+                cancelPoseTitle:'Interrompi la scrittura: ciò che è già scritto resta nell’editor, non salvato',
                 noPoisLoaded:'✖ Nessun luogo valido caricato',
                 anomalies:(n)=>`⚠️ ${n} anomali${n>1?'e':'a'} nella cartella di lavoro`,
                 btnRetry:(n)=>`🔄 Riprova (${n} luog${n>1?'hi':'o'})`,
@@ -741,7 +786,7 @@
                 aideRelireT:'Revisar e aplicar',
                 aideRelire:'Cada linha mostra o antes (riscado) e o depois. O que muda vem marcado; editar um valor na prévia decide a caixa de novo.\nAplicar grava no editor sem salvar: revise no mapa e depois clique em Salvar. Os locais com falha continuam marcados, para tentar de novo.',
                 aideEtatsT:'Estados de uma linha',
-                aideEtats:'Número verde: campos a gravar.\n-n laranja: aplicar REMOVERIA n valores — nunca vem marcada.\nSaE: local bloqueado acima do seu nível, a alteração vai como sugestão.\nL7: bloqueio da equipe, nada é gravado.\n?: local não encontrado.\n✔: gravado, aguardando ser salvo.',
+                aideEtats:'Número verde: campos a gravar.\n-n laranja: aplicar REMOVERIA n valores — nunca vem marcada.\nSaE: local bloqueado acima do seu nível, a linha fica travada, nada é gravado.\nL7: bloqueio da equipe, nada é gravado.\n?: local não encontrado.\n✔: gravado, aguardando ser salvo.',
                 sbEcrit:'✍️ Aplicar grava no editor; o script nunca salva.',
                 majDispo:(v)=>`Nova versão ${v} disponível.`, majInstaller:'Instalar',
                 cancelTitle:'Interromper: o que já foi carregado é mantido',
@@ -767,7 +812,7 @@
                 badgeRienTitle:'Nada a gravar: o local já tem estes valores',
                 badgeOffTitle:'Local não encontrado no editor: nada pode ser gravado',
                 badgePoseTitle:'Gravado no editor — aguardando ser salvo',
-                badgeSaeTitle:'Local bloqueado acima do seu nível: a alteração irá como sugestão (SaE)',
+                badgeSaeTitle:'Local bloqueado acima do seu nível: a linha fica travada, nada é gravado (SaE)',
                 lockHardTitle:'Bloqueio nível 7 (equipe Waze) — edição impossível',
                 noFile:'Nenhum arquivo escolhido',
                 historyTitle:'Arquivos recentes', histLoaded:'📂 Carregado:', histApplied:'✔ Aplicado:',
@@ -782,6 +827,14 @@
                 loadingPois:(n,total)=>`Carregando locais… ${n} / ${total}`,
                 applying:(n,total)=>`Aplicando… ${n} / ${total}`,
                 cancelBtn:'Cancelar',
+                quotaReste:(n,max)=>`Cota: restam ${n} / ${max} locais na hora móvel`,
+                quotaPlein:(h)=>`Cota atingida: retoma às ${h}`,
+                quotaTitre:(max)=>`No máximo ${max} locais alterados por hora móvel e por editor (doutrina de scripts da França). Uma alteração conta ao salvar; desfeita antes, é devolvida.`,
+                quotaAltere:'Cota ilegível: o script foi modificado. Aplicar está bloqueado.',
+                btnApplyQuota:(k,n)=>`Aplicar ${k} das ${n} linhas marcadas`,
+                bilanQuota:(n,h)=>`Cota atingida: ${n} linha(s) marcada(s) não gravada(s), continuam marcadas. Retoma às ${h}.`,
+                bilanInterrompu:(n)=>`Gravação interrompida: ${n} linha(s) não gravada(s), continuam marcadas.`,
+                cancelPoseTitle:'Parar a gravação: o que já foi gravado fica no editor, sem salvar',
                 noPoisLoaded:'✖ Nenhum local válido carregado',
                 anomalies:(n)=>`⚠️ ${n} anomalia${n>1?'s':''} na planilha`,
                 btnRetry:(n)=>`🔄 Tentar de novo (${n} loca${n>1?'is':'l'})`,
@@ -865,7 +918,7 @@
                 aideRelireT:'Rever e aplicar',
                 aideRelire:'Cada linha mostra o antes (riscado) e o depois. O que muda vem assinalado; alterar um valor na pré-visualização decide de novo a caixa.\nAplicar escreve no editor sem guardar: reveja no mapa e depois clique em Guardar. Os locais com falha ficam assinalados, para tentar de novo.',
                 aideEtatsT:'Estados de uma linha',
-                aideEtats:'Número verde: campos a escrever.\n-n laranja: aplicar REMOVERIA n valores — nunca vem assinalada.\nSaE: local bloqueado acima do seu nível, a alteração segue como sugestão.\nL7: bloqueio do staff, nada é escrito.\n?: local não encontrado.\n✔: escrito, à espera de ser guardado.',
+                aideEtats:'Número verde: campos a escrever.\n-n laranja: aplicar REMOVERIA n valores — nunca vem assinalada.\nSaE: local bloqueado acima do seu nível, a linha fica bloqueada, nada é escrito.\nL7: bloqueio do staff, nada é escrito.\n?: local não encontrado.\n✔: escrito, à espera de ser guardado.',
                 sbEcrit:'✍️ Aplicar escreve no editor; o script nunca guarda.',
                 majDispo:(v)=>`Nova versão ${v} disponível.`, majInstaller:'Instalar',
                 cancelTitle:'Interromper: o que já foi carregado mantém-se',
@@ -891,7 +944,7 @@
                 badgeRienTitle:'Nada a escrever: o local já tem estes valores',
                 badgeOffTitle:'Local não encontrado no editor: nada pode ser escrito',
                 badgePoseTitle:'Escrito no editor — à espera de ser guardado',
-                badgeSaeTitle:'Local bloqueado acima do seu nível: a alteração seguirá como sugestão (SaE)',
+                badgeSaeTitle:'Local bloqueado acima do seu nível: a linha fica bloqueada, nada é escrito (SaE)',
                 lockHardTitle:'Bloqueio de nível 7 (staff Waze) — edição impossível',
                 noFile:'Nenhum ficheiro escolhido',
                 historyTitle:'Ficheiros recentes', histLoaded:'📂 Carregado:', histApplied:'✔ Aplicado:',
@@ -906,6 +959,14 @@
                 loadingPois:(n,total)=>`A carregar locais… ${n} / ${total}`,
                 applying:(n,total)=>`A aplicar… ${n} / ${total}`,
                 cancelBtn:'Cancelar',
+                quotaReste:(n,max)=>`Quota: restam ${n} / ${max} locais na hora móvel`,
+                quotaPlein:(h)=>`Quota atingida: retoma às ${h}`,
+                quotaTitre:(max)=>`No máximo ${max} locais alterados por hora móvel e por editor (doutrina de scripts de França). Uma alteração conta ao guardar; anulada antes, é devolvida.`,
+                quotaAltere:'Quota ilegível: o script foi modificado. Aplicar está bloqueado.',
+                btnApplyQuota:(k,n)=>`Aplicar ${k} das ${n} linhas assinaladas`,
+                bilanQuota:(n,h)=>`Quota atingida: ${n} linha(s) assinalada(s) não escrita(s), continuam assinaladas. Retoma às ${h}.`,
+                bilanInterrompu:(n)=>`Escrita interrompida: ${n} linha(s) não escrita(s), continuam assinaladas.`,
+                cancelPoseTitle:'Parar a escrita: o que já foi escrito fica no editor, sem guardar',
                 noPoisLoaded:'✖ Nenhum local válido carregado',
                 anomalies:(n)=>`⚠️ ${n} anomalia${n>1?'s':''} no livro`,
                 btnRetry:(n)=>`🔄 Tentar de novo (${n} loca${n>1?'is':'l'})`,
@@ -989,7 +1050,7 @@
                 aideRelireT:'בדיקה והחלה',
                 aideRelire:'כל שורה מציגה את הלפני (מחוק) ואת האחרי. מה שמשתנה מסומן מראש; עריכת ערך בתצוגה המקדימה מחליטה מחדש על התיבה.\nהחלה כותבת לעורך בלי לשמור: בדקו במפה ואז לחצו על שמירה. מקומות שנכשלו נשארים מסומנים, לניסיון חוזר.',
                 aideEtatsT:'מצבי שורה',
-                aideEtats:'מספר ירוק: שדות לכתיבה.\n‎-n כתום: ההחלה תסיר n ערכים — לעולם לא מסומנת מראש.\nSaE: מקום נעול מעל הדרגה שלכם, השינוי יישלח כהצעה.\nL7: נעילת צוות, דבר אינו נכתב.\n?: המקום לא נמצא.\n✔: נכתב, ממתין לשמירה.',
+                aideEtats:'מספר ירוק: שדות לכתיבה.\n‎-n כתום: ההחלה תסיר n ערכים — לעולם לא מסומנת מראש.\nSaE: מקום נעול מעל הדרגה שלכם, השורה מוקפאת, דבר אינו נכתב.\nL7: נעילת צוות, דבר אינו נכתב.\n?: המקום לא נמצא.\n✔: נכתב, ממתין לשמירה.',
                 sbEcrit:'✍️ החלה כותבת לעורך; הסקריפט לעולם אינו שומר.',
                 majDispo:(v)=>`גרסה חדשה ${v} זמינה.`, majInstaller:'התקנה',
                 cancelTitle:'עצירה: מה שכבר נטען נשמר',
@@ -1015,7 +1076,7 @@
                 badgeRienTitle:'אין מה לכתוב: למקום כבר יש ערכים אלה',
                 badgeOffTitle:'המקום לא נמצא בעורך: לא ניתן לכתוב דבר',
                 badgePoseTitle:'נכתב לעורך — ממתין לשמירה',
-                badgeSaeTitle:'מקום נעול מעל הדרגה שלכם: השינוי יישלח כהצעה (SaE)',
+                badgeSaeTitle:'מקום נעול מעל הדרגה שלכם: השורה מוקפאת, דבר אינו נכתב (SaE)',
                 lockHardTitle:'נעילה בדרגה 7 (צוות Waze) — לא ניתן לערוך',
                 noFile:'לא נבחר קובץ',
                 historyTitle:'קבצים אחרונים', histLoaded:'📂 נטען:', histApplied:'✔ הוחל:',
@@ -1030,6 +1091,14 @@
                 loadingPois:(n,total)=>`טעינת מקומות… ${n} / ${total}`,
                 applying:(n,total)=>`מחיל… ${n} / ${total}`,
                 cancelBtn:'ביטול',
+                quotaReste:(n,max)=>`מכסה: נותרו ${n} / ${max} מקומות בשעה המתגלגלת`,
+                quotaPlein:(h)=>`המכסה מוצתה: חידוש בשעה ${h}`,
+                quotaTitre:(max)=>`לכל היותר ${max} מקומות שהשתנו בשעה מתגלגלת ולכל עורך (מדיניות הסקריפטים של צרפת). שינוי נספר בשמירה; שינוי שבוטל לפני כן מוחזר.`,
+                quotaAltere:'המכסה אינה קריאה: הסקריפט שונה. ההחלה חסומה.',
+                btnApplyQuota:(k,n)=>`החל ${k} מתוך ${n} השורות המסומנות`,
+                bilanQuota:(n,h)=>`המכסה מוצתה: ${n} שורות מסומנות לא נכתבו ונשארו מסומנות. חידוש בשעה ${h}.`,
+                bilanInterrompu:(n)=>`הכתיבה נעצרה: ${n} שורות לא נכתבו ונשארו מסומנות.`,
+                cancelPoseTitle:'עצירת הכתיבה: מה שכבר נכתב נשאר בעורך, ללא שמירה',
                 noPoisLoaded:'✖ לא נטען אף מקום תקין',
                 anomalies:(n)=>`⚠️ ${n} חריגות בחוברת`,
                 btnRetry:(n)=>`🔄 ניסיון חוזר (${n} מקומות)`,
@@ -1478,6 +1547,8 @@
 }
 .peu-footer-help { font-size: .833em; color: var(--peu-text2, #566372); line-height: 1.4; flex: 1; min-width: 150px; }
 .peu-footer-actions { display: flex; gap: 6px; align-items: center; margin-inline-start: auto; }
+.peu-quota { font-size: .833em; color: var(--peu-text2, #566372); font-variant-numeric: tabular-nums; }
+.peu-quota.plein { color: var(--peu-orange, #f57c00); font-weight: 700; }
 .peu-alert ul { margin: 3px 0 0; padding-inline-start: 16px; }
 .peu-alert ul li { margin-bottom: 2px; }
 .peu-error-title { font-weight: 700; display: list-item; margin-bottom: 4px; cursor: pointer; }
@@ -2424,8 +2495,14 @@
        (`lireRang`) : getLockStatus reste synchrone. Même échelle que l'ancien
        `W.loginManager` (0 = L1) — mesuré identique le 04/10/2026. */
     let _rangEditeur = 0;
+    /* Le pseudo de l'éditeur, lu au même appel : le quota (0.55.00) est le SIEN. */
+    let _quotaUser = '';
     async function lireRang() {
-        try { _rangEditeur = (await obtenirSdk().State.getUserInfo())?.rank ?? 0; } catch (e) { /* on garde le dernier */ }
+        try {
+            const u = await obtenirSdk().State.getUserInfo();
+            _rangEditeur = u?.rank ?? 0;
+            if (u && u.userName) _quotaUser = String(u.userName);
+        } catch (e) { /* on garde le dernier */ }
     }
     function getLockStatus(venue) {
         if (!venue) return 'ok';
@@ -2435,6 +2512,137 @@
         if (lockRank > userRank) return 'sae';
         return 'ok';
     }
+
+    // ==== banc:quota ====
+    // Extrait par tools/banc-quota.mjs : du calcul et le localStorage, rien d'autre.
+    /* ⭐⭐⭐ LE PLAFOND DE LA DOCTRINE FRANCE (§ 3.3), 0.55.00 : au plus le plafond de
+       lieux modifiés par « Appliquer », par HEURE GLISSANTE et PAR ÉDITEUR, comptés à
+       l'enregistrement, le reste affiché. Modèle exact de WME BAN Coverage
+       (quotaHn, _hc, _qt).
+       ⛔ AUCUN RÉGLAGE NE LE RELÈVE, et il n'est pas écrit en clair : le cœur
+          (`_pm`, `_pf` : plafond et fenêtre en ms, en hexadécimal) est SONDÉ par un
+          auto-test FONCTIONNEL (`_pc`) avec sa propre copie (`_pk`), elle-même
+          recoupée par une somme XOR (`_ps ^ plafond ^ fenêtre === _pq`). Changer le
+          cœur seul, ou la sonde seule, BLOQUE Appliquer au lieu de relever le quota.
+       Une entrée par lieu posé : { t: heure de la pose, v: lieu, e: 0 réservé (en
+       attente dans WME) | 1 enregistré, p: session }. Réservée à la pose (jamais plus
+       que le plafond en attente), confirmée par `wme-save-finished`, rendue si WME
+       n'a plus rien en attente sans qu'on ait enregistré (annulation totale).
+       Une réservation d'une AUTRE page (fermée sans enregistrer) n'est jamais rendue
+       sur un doute : elle compte jusqu'au bout de sa fenêtre.
+       La liste est brouillée par une clé tirée du pseudo et SCELLÉE : une copie
+       retouchée n'est pas ignorée, elle bloque Appliquer une heure.
+       ⚠️ Limite d'un contrôle dans le navigateur : décourager, pas empêcher.
+       Ne pas modifier sans l'accord de l'auteur du script. */
+    const _px = (s) => { let x = 0x811c9dc5;
+        for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
+        return x >>> 0; };
+    // Le cœur de calcul : plafond, fenêtre (ms).
+    const _pm = 0x96, _pf = 0x36ee80;
+    // La sonde du cœur, et la somme qui la recoupe : `_pc` exige les trois d'accord.
+    const _pk = [0x96, 0x36ee80];
+    const _ps = 0x4d1c2b7;
+    const _pq = 0x4e72ca1;
+    const SESSION_PEU = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const _ph = (x) => (x && typeof x === 'object' && typeof x.t === 'number' ? x.t : NaN);
+    function quotaPeu(entrees, maintenant) {
+        const max = _pm, f = _pf;
+        const r = (entrees || []).filter((x) => _ph(x) > maintenant - f).sort((a, b) => _ph(a) - _ph(b));
+        const reste = Math.max(0, max - r.length);
+        return { utilises: r.length, reste, max, libre: reste ? maintenant : _ph(r[r.length - max]) + f, garder: r };
+    }
+    function _pc() {
+        const m = Date.now(), [a, f] = _pk;
+        const pl = (n) => Array.from({ length: n }, (_, i) => ({ t: m - i, e: 1 }));
+        return quotaPeu(pl(a), m).reste === 0 && quotaPeu(pl(a - 1), m).reste === 1
+            && quotaPeu([{ t: m - f + 6e4 }], m).utilises === 1 && quotaPeu([{ t: m - f - 6e4 }], m).utilises === 0
+            && ((_ps ^ a ^ f) >>> 0) === _pq;
+    }
+    let _quotaMem = null;
+    const _qn = () => 'peu.q.' + _px('q|' + _quotaUser).toString(36);
+    const _qk = () => { let x = _px('k|' + _quotaUser) || 1;
+        return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x & 255; }; };
+    const _qt = (b) => _px(_quotaUser + '|' + b + '|' + _pq).toString(36);
+    function _qf(l) {
+        const j = new TextEncoder().encode(JSON.stringify(l)), k = _qk();
+        let o = '';
+        for (let i = 0; i < j.length; i++) o += String.fromCharCode(j[i] ^ k());
+        const b = btoa(o);
+        return 'p1.' + _qt(b) + '.' + b;
+    }
+    // null : copie absente ; false : copie retouchée ou illisible ; sinon la liste.
+    function _qo(v) {
+        if (v == null || v === '') return null;
+        const m = /^p1\.([0-9a-z]+)\.([A-Za-z0-9+/=]*)$/.exec(String(v));
+        if (!m || _qt(m[2]) !== m[1]) return false;
+        try {
+            const o = atob(m[2]), k = _qk(), j = new Uint8Array(o.length);
+            for (let i = 0; i < o.length; i++) j[i] = o.charCodeAt(i) ^ k();
+            const l = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(j));
+            return Array.isArray(l) ? l : false;
+        } catch (e) { return false; }
+    }
+    // Réunion des copies (mémoire de la page, localStorage) : effacer l'une ne rend rien.
+    function _qu(listes) {
+        const vus = new Map();
+        for (const l of listes) for (const x of l || []) {
+            if (!x || typeof x !== 'object' || typeof x.t !== 'number') continue;
+            const c = [x.t, x.v, x.p].join('|'), y = vus.get(c);
+            if (!y || (x.e === 1 && y.e !== 1)) vus.set(c, x);
+        }
+        return [...vus.values()];
+    }
+    function ecrireQuota(l) {
+        const lim = Date.now() - _pf;
+        const garde = l.filter((x) => _ph(x) > lim);
+        _quotaMem = garde.slice();
+        try { localStorage.setItem(_qn(), _qf(garde)); } catch (e) { /* la mémoire de la page tient */ }
+    }
+    function lireQuota() {
+        let v = null;
+        try { v = localStorage.getItem(_qn()); } catch (e) { /* mémoire seule */ }
+        const lu = _qo(v), listes = [_quotaMem || []];
+        if (lu) listes.push(lu);
+        let l = _qu(listes);
+        if (lu === false) {
+            const m = Date.now();
+            l = l.concat(Array.from({ length: _pm }, (_, i) => ({ t: m + i / 1e3, v: '', e: 1, p: 'x' })));
+            ecrireQuota(l);
+        }
+        return l;
+    }
+    // L'état pour l'interface. Auto-test refusé : rien ne se pose, sans heure de reprise.
+    function etatQuota(maintenant) {
+        if (!_pc()) return { altere: true, utilises: 0, reste: 0, max: _pm, libre: Infinity };
+        return quotaPeu(lireQuota(), maintenant);
+    }
+    // Réserve un lieu posé par cette page ; un lieu déjà en attente ici ne compte pas deux fois.
+    // Plein (ou auto-test refusé) : REFUS, `false`. La pose relit le reste avant chaque lieu.
+    function reserverLieu(vid, maintenant) {
+        const l = lireQuota();
+        if (l.some((x) => x.e === 0 && x.p === SESSION_PEU && x.v === String(vid))) return true;
+        if (!_pc() || quotaPeu(l, maintenant).reste <= 0) return false;
+        ecrireQuota(l.concat([{ t: maintenant, v: String(vid), e: 0, p: SESSION_PEU }]));
+        return true;
+    }
+    // Après un enregistrement réussi : les réservations de cette page sont comptées.
+    function confirmerQuota() {
+        let n = 0;
+        ecrireQuota(lireQuota().map((x) => {
+            if (x.e !== 0 || x.p !== SESSION_PEU) return x;
+            n++;
+            return Object.assign({}, x, { e: 1 });
+        }));
+        return n;
+    }
+    // WME n'a plus rien en attente et rien n'a été enregistré : les réservations de cette page sont rendues.
+    function rendreQuota() {
+        const l = lireQuota(), garde = l.filter((x) => !(x.e === 0 && x.p === SESSION_PEU));
+        ecrireQuota(garde);
+        return l.length - garde.length;
+    }
+    const enAttenteIci = () => lireQuota().some((x) => x.e === 0 && x.p === SESSION_PEU);
+    // ==== /banc:quota ====
 
     /** La date du jour en AAAA-MM-JJ : un nom de fichier ne se lit pas dans une langue. */
     function dateIso(d) {
@@ -2714,6 +2922,8 @@
             +   '<div class="peu-footer-actions">'
             +     '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" id="peu-btn-export" hidden'
             +            ' title="' + esc(t('btnExportTitle')) + '">' + esc(t('btnExport')) + '</button>'
+            /* Le quota restant, toujours visible à côté du bouton qui le consomme (0.55.00). */
+            +     '<span class="peu-quota" id="peu-quota" role="status"></span>'
             +     '<button type="button" class="peu-btn peu-btn-primary" id="peu-btn-appliquer" disabled'
             +            ' title="' + esc(t('btnApplyTitle')) + '">' + esc(t('btnApply')) + '</button>'
             +   '</div>'
@@ -2813,7 +3023,12 @@
     function ligneApercu(vue) {
         const etat = etatDeLaLigne(vue);
         const badge = badgeDeLigne(etat, vue);
-        const fige = etat === 'unloaded' || etat === 'hard';
+        /* ⛔ 0.55.00 (audit de la doctrine France, constat 3) : un lieu verrouillé
+           AU-DESSUS DU RANG se traite comme un verrou du staff — case désactivée,
+           donc jamais cochée, ni par la case maîtresse, ni par `lignesCochees`.
+           On lit le VERROU et non l'état : une ligne SaE qui retire des valeurs
+           a l'état « perte », et restait cochable. */
+        const fige = etat === 'unloaded' || etat === 'hard' || vue.verrou === 'sae';
         const classes = 'peu-ligne peu-row-' + etat;
 
         const vieux = (val, change) => '<div class="peu-cell-old' + (change ? ' changed' : '') + '"'
@@ -3363,6 +3578,8 @@
         try { localeWme = (await obtenirSdk().Settings.getLocale())?.localeCode || ''; } catch (e) { /* langue du navigateur */ }
         _peuLang = detectLang(localeWme);
         injectCSS();
+        await lireRang();     // le pseudo : le quota est par éditeur
+        brancherQuota();
         const { tabLabel, tabPane } = await obtenirSdk().Sidebar.registerScriptTab();
         // Icône (pin) à la place du nom, nom conservé en infobulle.
         tabLabel.textContent = '';
@@ -4066,8 +4283,18 @@
             return tr && tr.style.display === 'none';
         }).length;
 
-        btn.textContent = libelleAppliquer(nb);
-        btn.disabled = nb === 0 || _occupe;
+        /* ⛔ LE QUOTA (0.55.00) : au plus le reste est posé ; plein, Appliquer est grisé
+           et l'heure de reprise est dite à côté. */
+        const q = etatQuota(Date.now());
+        const k = Math.min(nb, q.reste);
+        btn.textContent = k > 0 && k < nb ? t('btnApplyQuota', k, nb) : libelleAppliquer(nb);
+        btn.disabled = nb === 0 || _occupe || q.reste === 0;
+        const qe = ov.querySelector('#peu-quota');
+        if (qe) {
+            qe.textContent = q.altere ? t('quotaAltere') : q.reste ? t('quotaReste', q.reste, q.max) : t('quotaPlein', heureCourte(q.libre));
+            qe.title = t('quotaTitre', q.max);
+            qe.classList.toggle('plein', !q.reste);
+        }
         if (exp) exp.hidden = !_apercu || !_apercu.resultats;
         if (aide) aide.textContent = masquees ? t('footerMasquees', masquees) : t(_apercu ? 'footerHelp' : 'footerHelpVide');
     }
@@ -4202,9 +4429,15 @@
      * @return {{resultats: Object[], aReprendre: Object[]}} `aReprendre` : les
      *    lignes à relancer — introuvables ou en erreur.
      */
-    async function poserLesLignes(items, env, surAvance) {
+    /* ⭐ 0.55.00 (audit de la doctrine France, constat 4) : `doitArreter`, relu AVANT
+       chaque lieu — le bouton d'arrêt de la barre. Ce qui est déjà posé reste dans
+       la pile de WME ; `interrompu` dit combien de lignes n'ont pas été tentées.
+       `surAvance` reçoit le résultat du lieu : c'est là qu'il se réserve au quota. */
+    async function poserLesLignes(items, env, surAvance, doitArreter) {
         const resultats = [], aReprendre = [];
+        let interrompu = 0;
         for (let i = 0; i < items.length; i++) {
+            if (doitArreter && doitArreter()) { interrompu = items.length - i; break; }
             const it = items[i];
             let r;
             try {
@@ -4218,9 +4451,9 @@
             r.resultat.verrou = it.verrou || 'ok';
             resultats.push(r.resultat);
             if (r.echec) aReprendre.push(it);
-            if (surAvance) surAvance(i + 1, items.length);
+            if (surAvance) surAvance(i + 1, items.length, r.resultat);
         }
-        return { resultats: resultats, aReprendre: aReprendre };
+        return { resultats: resultats, aReprendre: aReprendre, interrompu: interrompu };
     }
 
     /**
@@ -4263,7 +4496,7 @@
      *    resultat (vert). Les chiffres sont tabulaires, sans quoi ils dansent
      *    d'un rafraichissement a l'autre.
      */
-    function poserProgression(corps, libelle, total, surAnnulation, enTete) {
+    function poserProgression(corps, libelle, total, surAnnulation, enTete, cleTitreAnnulation) {
         const div = document.createElement('div');
         div.className = 'peu-prog';
         div.setAttribute('role', 'status');
@@ -4273,7 +4506,7 @@
             + '<div class="peu-progress-bar-bg"><i class="peu-progress-bar"></i></div>'
             + '<div class="peu-prog-b"><span class="peu-prog-d"></span>'
             + (surAnnulation ? '<button type="button" class="peu-btn peu-btn-neutral peu-btn-sm" data-annuler'
-                + ' title="' + esc(t('cancelTitle')) + '">' + esc(t('cancelBtn')) + '</button>' : '')
+                + ' title="' + esc(t(cleTitreAnnulation || 'cancelTitle')) + '">' + esc(t('cancelBtn')) + '</button>' : '')
             + '</div>';
         if (enTete) corps.prepend(div); else corps.appendChild(div);
 
@@ -4586,24 +4819,37 @@
         /* ⚠️ L'APERÇU EST FIGÉ AU CLIC : le bilan et le rapport se rattachent à
            celui-ci, même si l'écran en montrait un autre à la fin. */
         const apercu = _apercu;
-        const items = lignesCochees();
-        if (!items.length) return;
+        const coches = lignesCochees();
+        if (!coches.length) return;
+        /* ⛔ LE QUOTA (0.55.00, doctrine France § 3.3) : le pseudo d'abord — le quota
+           est le sien —, puis au plus le RESTE est posé ; les autres lignes restent
+           cochées pour la tranche suivante. */
+        await lireRang();
+        const q0 = etatQuota(Date.now());
+        if (!q0.reste) { majPied(); return; }
+        const items = coches.slice(0, q0.reste);
 
         const ov = document.getElementById('peu-overlay');
         const corps = ov.querySelector('#peu-body');
         const avant = await nbModifsEnAttente();
         occuper(true);
         /* ⚠️ EN TETE DU CORPS : la liste peut etre longue, et une barre posee en
-           bas d une zone defilante travaille hors de vue. */
-        const prog = poserProgression(corps, t('applying', 0, items.length), items.length, null, true);
+           bas d une zone defilante travaille hors de vue.
+           ⭐ 0.55.00 : avec son bouton d'ARRÊT (constat 4 de l'audit), relu avant
+           chaque lieu. */
+        const annule = { cancelled: false };
+        const prog = poserProgression(corps, t('applying', 0, items.length), items.length,
+            (e) => { annule.cancelled = true; if (e && e.currentTarget) e.currentTarget.disabled = true; }, true, 'cancelPoseTitle');
 
-        let bilan = { resultats: [], aReprendre: [] };
+        let bilan = { resultats: [], aReprendre: [], interrompu: 0 };
         let erreurGenerale = null;
         try {
-            bilan = await poserLesLignes(items, environnementDePose(), (n, total) => {
+            bilan = await poserLesLignes(items, environnementDePose(), (n, total, r) => {
                 prog.avance(n, total);
                 prog.libelle(t('applying', n, total));
-            });
+                /* Réservé dès la pose ; un lieu introuvable n'a rien reçu, il ne compte pas. */
+                if (r && r.status !== 'timeout' && r.vid != null) reserverLieu(r.vid, Date.now());
+            }, () => annule.cancelled || etatQuota(Date.now()).reste <= 0);
         } catch (e) {
             /* Ce qui lève AVANT la boucle (le module d'écriture de WME absent) :
                rien n'a été posé, et cela se dit. */
@@ -4612,6 +4858,11 @@
             prog.retirer();
             occuper(false);
         }
+        /* Les lignes cochées NON tentées : arrêtées par le bouton, ou hors quota. */
+        const nonTentees = bilan.interrompu || 0;
+        bilan.arretes = annule.cancelled ? nonTentees : 0;
+        bilan.horsQuota = coches.length - items.length + (annule.cancelled ? 0 : nonTentees);
+        if (bilan.horsQuota) bilan.reprise = heureCourte(etatQuota(Date.now()).libre);
 
         try { await cadrerSurLesLieux(apercu.venueMap); } catch (e) { /* la carte reste où elle est */ }
         apercu.resultats = bilan.resultats;
@@ -4669,7 +4920,8 @@
         const vieux = corps.querySelector('[data-bilan]');
         if (vieux) vieux.remove();
         const div = document.createElement('div');
-        div.className = 'peu-alert ' + (echecs.length || partiels || erreurGenerale ? 'peu-alert-warn' : 'peu-alert-ok');
+        div.className = 'peu-alert ' + (echecs.length || partiels || erreurGenerale || bilan.arretes || bilan.horsQuota
+            ? 'peu-alert-warn' : 'peu-alert-ok');
         div.setAttribute('data-bilan', '');
         div.setAttribute('role', 'status');
         div.tabIndex = -1;
@@ -4683,6 +4935,8 @@
         ligne(t('successMsg', poses), true);
         if (partiels) ligne(t('bilanPartiel', partiels));
         if (sae) ligne(t('bilanSae', sae));
+        if (bilan.arretes) ligne(t('bilanInterrompu', bilan.arretes), true);
+        if (bilan.horsQuota) ligne(t('bilanQuota', bilan.horsQuota, bilan.reprise || ''), true);
         if (echecs.length) {
             ligne(t('bilanEchec', echecs.length));
             /* ⭐ LES LIEUX EN ÉCHEC SE NOMMENT, et se reprennent d'un clic : leurs
@@ -4710,6 +4964,51 @@
     /** Le nombre de modifications non enregistrées, ou `null` si on ne peut pas le lire. */
     async function nbModifsEnAttente() {
         try { return await obtenirSdk().Editing.getUnsavedChangesCount(); } catch (e) { return null; }
+    }
+
+    /** Une heure « 14:32 » dans la langue du script ; « — » si elle n'existe pas (quota altéré). */
+    function heureCourte(ms) {
+        if (!Number.isFinite(ms)) return '—';
+        try { return new Date(ms).toLocaleTimeString(_peuLang, { hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return new Date(ms).toTimeString().slice(0, 5); }
+    }
+
+    /* ---- Le quota dans WME (0.55.00) : confirmation et rendu ----
+       ⭐ CONFIRMÉ À L'ENREGISTREMENT : `wme-save-finished` réussi ⇒ les réservations
+          de cette page comptent (WME enregistre toute sa pile d'un coup).
+       ⭐ RENDU SUR ANNULATION TOTALE : des réservations en attente, WME qui ne compte
+          plus AUCUNE modification non enregistrée, deux relevés de suite (8 s), sans
+          enregistrement entre-temps ⇒ tout a été défait (Ctrl+Z ou « Annuler tout »).
+       ⚠️ HYPOTHÈSE NON MESURÉE : `wme-save-finished` arrive moins de 4 s après que le
+          compteur est tombé à zéro. Sans l'événement (SDK qui le refuse), on ne rend
+          RIEN : une réservation douteuse compte jusqu'au bout de sa fenêtre.
+       ⚠️ Une annulation PARTIELLE n'est pas vue : le lieu défait compte quand même. */
+    let _quotaEcoute = false, _quotaZeros = 0;
+    function brancherQuota() {
+        try {
+            obtenirSdk().Events.on({ eventName: 'wme-save-finished', eventHandler: (r) => {
+                if (!r || !r.success) return;
+                _quotaZeros = 0;
+                const n = confirmerQuota();
+                if (n) console.info('[WPEU] quota : ' + n + ' lieu(x) enregistré(s), compté(s)');
+                if (document.getElementById('peu-overlay')) majPied();
+            } });
+            _quotaEcoute = true;
+        } catch (e) { console.warn('[WPEU] quota : enregistrement non écouté —', e && e.message); }
+        setInterval(() => { veillerQuota().catch(() => { /* prochain tour */ }); }, 4000);
+    }
+    async function veillerQuota() {
+        if (_quotaEcoute && !_occupe && enAttenteIci()) {
+            const n = await nbModifsEnAttente();
+            _quotaZeros = n === 0 ? _quotaZeros + 1 : 0;
+            if (_quotaZeros >= 2 && enAttenteIci()) {
+                _quotaZeros = 0;
+                const k = rendreQuota();
+                if (k) console.info('[WPEU] quota : ' + k + ' réservation(s) rendue(s) — plus rien en attente dans WME');
+            }
+        } else _quotaZeros = 0;
+        // Le reste et l'heure de reprise suivent le temps, même sans geste.
+        if (document.getElementById('peu-overlay') && !_occupe) majPied();
     }
 
     let _peuInited = false;
