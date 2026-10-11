@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.55.01
+// @version      0.55.02
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -3540,11 +3540,27 @@
         } catch (e) { res(null); }
     });
     const _vmHx = t => { let x = 0x811c9dc5; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; } return x >>> 0; };
+    // L'auteur essaie ses versions avant de les publier. ⚠️ Le contrôle tourne au DÉBUT du démarrage, souvent
+    // AVANT que WME ait chargé le profil : getUserInfo() rend alors un pseudo vide (mesuré le 11/10/2026 —
+    // une version non publiée bloquée chez l'auteur). On attend donc le pseudo jusqu'à 10 s, puis on essaie
+    // la session Discuss (même site, mêmes cookies).
     const _vmAuteur = async () => {
+        const estAuteur = n => !!n && _vmHx(String(n).toLowerCase()) === 0xc0bef069;
         try {
             const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.getWmeSdk) ? unsafeWindow : window;
-            const u = await w.getWmeSdk({ scriptId: 'wme-poi-event-updater-vm', scriptName: String('WME POI Event Updater') + ' (version)' }).State.getUserInfo();
-            return !!(u && u.userName) && _vmHx(String(u.userName).toLowerCase()) === 0xc0bef069;
+            const sdkVm = w.getWmeSdk({ scriptId: 'wme-poi-event-updater-vm', scriptName: String('WME POI Event Updater') + ' (version)' });
+            for (let i = 0; i < 20; i++) {
+                let u = null;
+                try { u = await sdkVm.State.getUserInfo(); } catch (e) { u = null; }
+                if (u && u.userName) return estAuteur(u.userName);
+                await new Promise(r => setTimeout(r, 500));
+            }
+        } catch (e) { /* SDK indisponible : on tente Discuss */ }
+        try {
+            const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.fetch) ? unsafeWindow : window;
+            const r = await w.fetch('/discuss/session/current.json', { credentials: 'same-origin' });
+            const j = r.ok ? await r.json() : null;
+            return estAuteur(j && j.current_user && j.current_user.username);
         } catch (e) { return false; }
     };
     const _vmEmpreinte = async src => {
