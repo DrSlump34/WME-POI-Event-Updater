@@ -76,13 +76,42 @@ the header or the corner has the focus. A double-click on the header puts it bac
 - Each row carries its state in **three** signs — a left border, a background and a badge.
 - The tick box is the **first** column. What changes is ticked by default; **editing a name or a
   description in the preview decides the box again**.
+- A place **locked above your level** (badge **SaE**) is frozen like a staff lock (**L7**): its
+  row is never ticked, not even by the "tick all" box, and nothing is written to it.
 - **Apply** says how many rows it will write, including the ones hidden by the filter.
+- While rows are being written, a **Cancel** button on the progress bar stops the writing. It is
+  checked before each place: what is already written stays in the editor, unsaved; the rows not
+  written stay ticked.
 - After Apply, written rows are unticked and marked ✔; places that failed are **named** and stay
   ticked, so **Retry** writes only them. The report (Excel) lists, for each place, the permalink,
   the before and after, the status and **the fields that were not written**.
 
 The interface is available in **French, English, German, Spanish, Italian, Portuguese (Brazil and
 Portugal) and Hebrew**, following the editor's language.
+
+## Limits
+
+**At most 150 places per rolling hour, per editor.** The quota left is shown next to **Apply**,
+with, once it is used up, the time it frees up again; Apply is then greyed out. A change counts
+when it is **saved**: undone before saving, it is given back. If you tick more rows than the quota
+allows, Apply writes only what is left (*"Apply k of the n ticked rows"*) and the other rows stay
+ticked for later. The cap is not a setting and cannot be raised; if the script finds its quota
+data tampered with, Apply is blocked.
+
+## Version and integrity check
+
+At start-up the script reads [`version-min.json`](version-min.json) from this repository. It
+**does not start**, and shows a banner saying why, when:
+
+- its version has been **withdrawn** by the author (older than the minimum listed) — update it
+  from GreasyFork;
+- its code does not match the published code for its version (**modified or damaged copy**) —
+  reinstall it from GreasyFork;
+- its version was **never published**.
+
+If the file cannot be reached or read, the script starts normally: a GitHub outage does not stop
+anyone from editing. This runs in your browser: it stops an outdated or altered copy, it is not a
+lock.
 
 ## Installation
 
@@ -92,10 +121,11 @@ Portugal) and Hebrew**, following the editor's language.
    column, on the right: it opens the work window. The script's tab in the **Scripts** panel
    keeps the recent files, the help, and the links — and says when a new version is out.
 
-Updates are delivered automatically through GreasyFork. The script asks for one permission,
-`GM_xmlhttpRequest` on `update.greasyfork.org`, used only to check for a new version (at most once
-a day). The Excel library is [SheetJS](https://sheetjs.com/) 0.20.3, loaded from its own CDN with
-an integrity hash.
+Updates are delivered automatically through GreasyFork. The script asks for one network
+permission, `GM_xmlhttpRequest`, on two hosts only: `update.greasyfork.org`, to check for a new
+version (at most once a day), and `raw.githubusercontent.com`, to read `version-min.json` at
+start-up. Nothing you edit is sent. The Excel library is [SheetJS](https://sheetjs.com/) 0.20.3,
+loaded from its own CDN with an integrity hash.
 
 ## Support
 
