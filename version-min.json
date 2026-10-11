@@ -1,4 +1,7 @@
 {
-  "min": "0.54.01",
-  "_lisezmoi": "Version minimale autorisée. Toute version plus ancienne refuse de démarrer et demande la mise à jour. À relever quand une faille est corrigée."
+  "min": "0.55.01",
+  "empreintes": {
+    "0.55.01": "0092344bfb3c1ebf2ac7f272c46090bce14fa46d13781c6b2a9e233dd108031d"
+  },
+  "_lisezmoi": "Version minimale autorisée et empreinte SHA-256 du code de chaque version publiée (texte de l’enveloppe _wmeIntegre, fins de ligne LF). Une version plus ancienne, une copie modifiée ou une version absente ne démarre pas."
 }
