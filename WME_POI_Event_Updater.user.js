@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.55.03
+// @version      0.55.04
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -3438,6 +3438,24 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .peu-con
      *    molette zoome la carte pendant qu'on fait defiler la liste, et un clic
      *    dans un champ desselectionne ce qu'on regardait.
      */
+    // Les éléments flottants de PEU vivent dans une COUCHE posée dans la zone de carte de WME
+    // (.edit-area-main, niveau 1), pas sur <body> : sur la page, ils recouvraient le panneau « Calques » de WME,
+    // empilé au niveau 2 de cette zone (mesuré le 15/10/2026 ; aucun z-index posé sur <body> ne passe dessous
+    // sans passer sous la carte). La couche est de taille nulle : elle ne prend aucun clic, et ses enfants gardent
+    // leurs z-index entre eux. Les boîtes modales et les messages restent sur <body>, au-dessus de tout.
+    // Sans cette zone (WME changé), repli sur <body>. Même règle que WBC 0.16.08.
+    function couchePeu() {
+        const zone = document.querySelector('div.edit-area-main');
+        if (!zone) return document.body;
+        let c = document.getElementById('peu-couche');
+        if (!c) {
+            c = document.createElement('div');
+            c.id = 'peu-couche';
+            c.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:1';
+        }
+        if (c.parentElement !== zone) zone.appendChild(c);
+        return c;
+    }
     function construireOverlay() {
         let ov = document.getElementById('peu-overlay');
         if (ov) return ov;
@@ -3449,7 +3467,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .peu-con
         ov.setAttribute('aria-labelledby', 'peu-titre');
         if (_peuLang === 'he') ov.dir = 'rtl';
         ov.innerHTML = coqueOverlay(PEU_VERSION);
-        document.body.appendChild(ov);
+        couchePeu().appendChild(ov);
 
         ['wheel', 'mousedown', 'dblclick', 'contextmenu'].forEach(
             (evt) => ov.addEventListener(evt, (e) => e.stopPropagation())
