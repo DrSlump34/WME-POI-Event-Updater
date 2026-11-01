@@ -2,7 +2,7 @@
 // @name         WME POI Event Updater
 // @name:fr      WME POI Event Updater
 // @namespace    http://tampermonkey.net/
-// @version      0.56.02
+// @version      0.56.03
 // @description  Bulk-update WME POI names and descriptions per event via Excel file
 // @description:fr Mise à jour en masse des POI WME par événement via un fichier Excel
 // @author       DrSlump34
@@ -3937,7 +3937,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         const estAuteur = n => !!n && _vmHx(String(n).toLowerCase()) === 0xc0bef069;
         try {
             const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.getWmeSdk) ? unsafeWindow : window;
-            const sdkVm = w.getWmeSdk({ scriptId: 'wme-poi-event-updater-vm', scriptName: String('WME POI Event Updater') + ' (version)' });
+            const sdkVm = w.getWmeSdk({ scriptId: 'wme-poi-event-updater-vm', scriptName: String('WME POI Event Updater') + ' (version)', mode: 'async' });
             for (let i = 0; i < 20; i++) {
                 let u = null;
                 try { u = await sdkVm.State.getUserInfo(); } catch (e) { u = null; }
